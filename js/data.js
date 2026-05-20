@@ -62,7 +62,7 @@ const SECTIONS = [
     yLabel:    "Vertical displacement from zeros (10 cm)",
     domain:    "\\begin{gathered}\\text{Right arm:}\\quad 0 < x < 5.2\\\\\\text{Left arm:}\\quad -4.8 < x < 0\\end{gathered}",
     range:     "\\begin{gathered}\\text{Right arm:}\\quad 0.16 < y < 6.2\\\\\\text{Left arm:}\\quad -4.98 < y < -0.20\\end{gathered}",
-    context: "",
+    context: "A picture of my classmate and teacher.",
     transformsText: `So the parent function is \\(y = \\dfrac{1}{x}\\). I picked it because it has two branches going opposite directions, which is similar to the function. The parent function has a vertical asymptote at \\(x = 0\\) and a horizontal asymptote at \\(y = 0\\), and each transformation I shifted those asymptotes to better align with the actual position of the arms in the photo.
 
 Right arm equation: \\(y = \\dfrac{2.6}{x + 0.4} - 0.3\\). The 2.6 just makes it steep enough to follow the arm angle from shoulder to fingertips. I shifted the asymptote left to \\(x = -0.4\\) because that's where the shoulder is. The -0.3 drops it down a bit since the arm tilts downward when it stretches out.
@@ -89,7 +89,7 @@ Left arm: \\(-4.8 < x < 0\\), so about 48 cm left of center. The asymptote at \\
     yLabel:    "Vertical distance from zeros (10 cm)",
     domain:    "\\begin{gathered}\\text{Left arm:}\\quad -5 < x < 0\\\\\\text{Right arm:}\\quad 0 < x < 5\\end{gathered}",
     range:     "\\begin{gathered}\\text{Left arm:}\\quad 0.60 < y < 4.94\\\\\\text{Right arm:}\\quad 0.23 < y < 17.7\\end{gathered}",
-    context: "",
+    context: "A picture of my classmate and teacher.",
     transformsText: `Parent function \\(y = \\dfrac{1}{x^2}\\). Both branches curve upward which fits better here since both arms are raised. Unlike \\(y = \\dfrac{1}{x}\\) which has one positive and one negative branch, \\(y = \\dfrac{1}{x^2}\\) is always positive, so both branches naturally sit above the x-axis, exactly like how both arms in this photo are lifted above the body.
 
 Left arm: \\(y = \\dfrac{3.6}{(x - 0.9)^2} + 0.5\\). Needed 3.6 to make it tall enough to reach the raised arm height. Shifted right to \\(x = 0.9\\) so the peak sits near the shoulder. +0.5 keeps the bottom from being low.
@@ -129,23 +129,31 @@ Right arm: \\(0 < x < 5\\), same 50 cm to the right. I measured where the arms a
     image:     "images/photo4.jpg",
     imageAlt:  "A red spiral slide modelled with a tangent function",
     desmosId:  "i7exsp2k7z",
-    desmosImage: "images/graph4.png",
+    desmosImage: "images/graph4.jpg",
     parentEq:  "f(x) = \\tan(x)",
     modelEq:   "y = \\tan(0.3x) + 0.9",
     graphTitle:"Height of the slide as a function of horizontal position",
-    xLabel:    "Horizontal position along the slide (units)",
-    yLabel:    "Height of the slide (units)",
-    domain:    "\\{\\, x \\in \\mathbb{R} \\mid -4 \\le x \\le 4 \\,\\}",
-    range:     "\\{\\, y \\in \\mathbb{R} \\mid -1.67 \\le y \\le 3.47 \\,\\}",
+    xLabel:    "Horizontal position along the slide (meters)",
+    yLabel:    "Vertical displacement from Toshi's eyes to the slide (meters)",
+    domain:    "\\{\\, x \\in \\mathbb{R} \\mid -2 \\le x \\le 1.68 \\,\\}",
+    range:     "\\{\\, y \\in \\mathbb{R} \\mid 0.22 \\le y \\le 1.45 \\,\\}",
     context: `The photo is from the Waterfront Residence, where there is the distinct red slide connecting the top floor to the common room. I chose this place since it injects some fun into the daily life of the dorm, and by standing in the foreground, I would capture my own link with this distinctive place. What caught my attention was the way in which the curve is gradual in the middle while steep on either side. The tangent function seemed like the perfect choice for modeling such a curve.`,
-    transformsText: `Initially, I used the parent function \\(f(x) = \\tan(x)\\) to represent the slope of the red slide. The most important transformation for me was a horizontal stretch. The coefficient of the function equals \\(0.3x\\). It is not a random figure, since it is based on my estimation of the size of the slide according to the period of the tangent function: \\(\\text{Period} = \\dfrac{\\pi}{|k|}\\). Setting \\(k = 0.3\\) will make the period equal to 10.47. Thus, the vertical asymptotes will move further from the slide, which will allow me to draw a continuous function.
+    transformsText: `Initially, I used the parent function \\(f(x) = \\tan(x)\\) to represent the slope of the red slide. The most important transformation for me was a horizontal stretch. The coefficient of the function equals \\(0.3\\). It is not a random figure, since it is based on my estimation of the size of the slide according to the period of the tangent function: \\(\\text{Period} = \\dfrac{\\pi}{|k|}\\). Setting \\(k = 0.3\\) will make the period equal to 10.47. Thus, the vertical asymptotes will move further from the slide, which will allow me to draw a continuous function.
 
-What is more, I introduced a vertical shift to make the tangent curve go up by 0.9 units (\\(c = 0.9\\)). In this way, it became possible to place the inflection point of the curve in the middle of the slide. Moreover, as I did not introduce a vertical stretch (\\(a = 1\\)), it became much easier to match the steepness of the curve.`,
-    domainRangeText: `As to the domain, the function of the tangent will be infinitely repeated with multiple vertical asymptotes. However, in my case, it was impossible to keep the function repeating infinitely, since I needed to model only one slide. Therefore, in order to limit the number of repeats of the tangent function, I had to confine the domain to \\([-4, 4]\\) because I needed to model the slide visible on the picture.
+What is more, I introduced a vertical shift to make the tangent curve go up by 0.9 units (\\(c = 0.9\\)). In this way, it became possible to place the inflection point of the curve in the middle of the slide. Moreover, as I did not introduce a vertical stretch (\\(a = 1\\)), it became much easier to match the steepness of the curve.
 
-Furthermore, as I have confined the domain to the interval which is smaller than the calculated asymptotes (\\(x \\approx \\pm 5.2\\)), I am sure that my function will be continuous enough to describe the true path of sliding.
+Summary of Transformations:
+Parent function — \\(y = \\tan(x)\\)
+Horizontal compression by factor of 0.3 (\\(k = 0.3\\)) — \\(y = \\tan(0.3x)\\)
+Vertical translation 0.9 units upward (\\(c = 0.9\\)) — \\(y = \\tan(0.3x) + 0.9\\)
+Final function — \\(y = \\tan(0.3x) + 0.9\\)`,
+    domainRangeText: `Before thinking about restricting the domain, let's review the parent function. The parent function is \\(y = \\tan(x)\\). The domain for this function is \\(D: \\{x \\in \\mathbb{R} \\mid x \\neq \\dfrac{\\pi}{2} + n\\pi, n \\in \\mathbb{Z}\\}\\). The range is \\(R: \\{y \\in \\mathbb{R}\\}\\). The reason why the domain doesn't contain certain values is that when \\(\\cos(x) = 0\\), then \\(\\tan(x)\\) is undefined and has vertical asymptotes there. As for the range, since the graph goes to infinity between every two asymptotes, the range contains all real numbers.
 
-As to the range, of course, considering the restrictions of the domain, the range of the function will be limited to approximately \\([-1.67, 3.47]\\). As a proof, let us substitute the values of the domain into my function: \\(\\tan(0.3 \\times -4) + 0.9 \\approx -1.67\\) and \\(\\tan(0.3 \\times 4) + 0.9 \\approx 3.47\\). Therefore, this interval corresponds to the real height of the fall from the top to the bottom of the slide.`,
+As to the domain, the function of the tangent will be infinitely repeated with multiple vertical asymptotes. However, in my case, it was impossible to keep the function repeating infinitely, since I needed to model only one slide. Therefore, in order to limit the number of repeats of the tangent function, I had to confine the domain to \\([-2, 1.68]\\) because I needed to model the slide visible on the picture.
+
+Furthermore, as I have confined the domain to the interval which is smaller than the calculated asymptotes (\\(x = \\pm\\dfrac{\\pi}{0.6} \\approx \\pm 5.24\\)), I am sure that my function will be continuous enough to describe the true path of sliding.
+
+As to the range, of course, considering the restrictions of the domain, the range of the function will be limited to approximately \\([0.22, 1.45]\\). As a proof, let us substitute the values of the domain into my function: \\(\\tan(0.3 \\times -2) + 0.9 \\approx 0.22\\) and \\(\\tan(0.3 \\times 1.68) + 0.9 \\approx 1.45\\). Therefore, this interval corresponds to the real height of the fall from the top to the bottom of the slide.`,
   },
   {
     /* 5 ===================================================== */
@@ -156,21 +164,29 @@ As to the range, of course, considering the restrictions of the domain, the rang
     image:     "images/photo5.jpg",
     imageAlt:  "Friends posing in a wave, modelled with a sinusoidal function",
     desmosId:  "0a1foymzjl",
-    desmosImage: "images/graph5.png",
+    desmosImage: "images/graph5.jpg",
     parentEq:  "f(x) = \\sin(x)",
     modelEq:   "y = \\sin(-2.2x) + 1.5",
     graphTitle:"Height of the Wave as a function of Horizontal Distance",
-    xLabel:    "Horizontal distance across the group (meters)",
-    yLabel:    "Height of our linked shoulders (meters)",
-    domain:    "\\{\\, x \\in \\mathbb{R} \\mid -3 \\le x \\le 3 \\,\\}",
+    xLabel:    "Horizontal distance across the group (50 cm)",
+    yLabel:    "Height of our linked shoulders (50 cm)",
+    domain:    "\\{\\, x \\in \\mathbb{R} \\mid -2.5 \\le x \\le 2 \\,\\}",
     range:     "\\{\\, y \\in \\mathbb{R} \\mid 0.5 \\le y \\le 2.5 \\,\\}",
     context: `This picture illustrates one of the memorable moments of being a friend of four people. It shows us linking our hands and posing in various heights to make a continuous wave. This photo reflects all the strong friendships that I have built while staying here. Since the natural position of our shoulders is up and down, I concluded that the best way to model our pose would be a sinusoidal function.`,
     transformsText: `I started with the parent function of \\(f(x) = \\sin(x)\\) to fit the position of our linked shoulders. Firstly, I used the vertical translation of \\(c = 1.5\\) to move our graph upward. The reason for choosing 1.5 as the value is the average distance between the ground and our shoulders in a semi-crouched position. Since I didn't change the amplitude of \\(a = 1\\), the peaks and troughs of the graph precisely corresponded to the maximum and minimum heights of our pose.
 
-Secondly, I used the horizontal compression. The parameter inside the function is \\(-2.2x\\). I did not assume this value by myself; it was obtained using the formula \\(\\text{Period} = \\dfrac{2\\pi}{|k|}\\). Thus, since our wave covered 2.85 units, I calculated that \\(k\\) must be 2.2. Moreover, in order to obtain the reflection across the \\(y\\)-axis, I used the negative sign before \\(k\\). It is necessary because in our case, the person standing on the left hand side of the picture bent his shoulders downward first. Thus, the negative sign makes the wave go in the right direction.`,
-    domainRangeText: `As for the domain, since the parent sine function has an unbounded domain, I had to restrict it to \\([-3, 3]\\) in order to accommodate the real-world scenario in the picture. From the grid, the person initiating the wave from the left hand side stands at roughly \\(x = -3\\), while the person on the right hand side ends at \\(x = 3\\). In case I did not restrict the domain, the wave will continue infinitely, suggesting that there are invisible friends who will be doing the wave even outside the picture, which does not make sense.
+Secondly, I used the horizontal compression. The coefficient inside the function is \\(-2.2\\). I did not assume this value by myself; it was obtained using the formula \\(\\text{Period} = \\dfrac{2\\pi}{|k|}\\). Thus, since our wave covered 2.85 units, I calculated that \\(k\\) must be 2.2. Moreover, in order to obtain the reflection across the \\(y\\)-axis, I used the negative sign before \\(k\\). It is necessary because in our case, the person standing on the left hand side of the picture bent his shoulders downward first. Thus, the negative sign makes the wave go in the right direction.
 
-As for the range, the graph is bounded by the interval \\([0.5, 2.5]\\). Mathematically, this can be seen due to the vertical shift of 1.5 and the amplitude of 1, hence \\(1.5 - 1 = 0.5\\) and \\(1.5 + 1 = 2.5\\). The number 0.5 represents the minimum height where we were crouching down, while 2.5 is the maximum height where the tallest person's shoulders touch. Therefore, all mathematical values lie within the physical dimensions of our bodies.`,
+Summary of Transformations:
+Parent function — \\(y = \\sin(x)\\)
+Horizontal compression by factor of 2.2 + reflection across y-axis (\\(k = -2.2\\)) — \\(y = \\sin(-2.2x)\\)
+Vertical translation 1.5 units upward (\\(c = 1.5\\)) — \\(y = \\sin(-2.2x) + 1.5\\)
+Final function — \\(y = \\sin(-2.2x) + 1.5\\)`,
+    domainRangeText: `By itself, the parent function \\(y = \\sin(x)\\) has a domain of \\(D: \\{x \\in \\mathbb{R}\\}\\) and a range of \\(R: \\{y \\in \\mathbb{R} \\mid -1 \\le y \\le 1\\}\\). This range and domain is defined as it is since the domain is infinite because the sine graph extends forever in both directions and the range is between 1 and -1 since the parent function has an amplitude of 1.
+
+As for the domain of my model, I had to restrict it to \\([-2.5, 2]\\) in order to accommodate the real-world scenario in the picture. From the grid, the person initiating the wave from the left hand side stands at roughly \\(x = -2.5\\), while the person on the right hand side ends at \\(x = 2\\). In case I did not restrict the domain, the wave will continue infinitely, suggesting that there are invisible friends who will be doing the wave even outside the picture, which does not make sense.
+
+As for the range, the graph is bounded by the interval \\([0.5, 2.5]\\). Mathematically, this can be seen due to the vertical shift of 1.5 and the amplitude of 1, hence \\(1.5 - 1 = 0.5\\) and \\(1.5 + 1 = 2.5\\). The number 0.5 (= 25 cm in real life) represents the minimum height where we were crouching down, while 2.5 (= 1.25 m in real life) is the maximum height where the tallest person's shoulders touch. Therefore, all mathematical values lie within the physical dimensions of our bodies.`,
   },
   {
     /* 6 ===================================================== */
