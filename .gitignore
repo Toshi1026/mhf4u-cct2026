@@ -1,2 +1,10 @@
-.DS_Store
-.claude/
+# iPhone原素材・書き出し動画はGitに入れない（GitHubの100MB制限／容量対策）
+footage/**
+!footage/.gitkeep
+exports/**
+!exports/.gitkeep
+*.mov
+*.MOV
+*.mp4
+*.MP4
+*.HEVC
