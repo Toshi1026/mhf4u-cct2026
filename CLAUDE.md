@@ -1,10 +1,11 @@
 # MAZE WIND RETREAT — SNS Short Movie
 
-高知県土佐市の海沿いにあるカフェ「MAZE WIND RETREAT」の縦型ショート動画（15秒版と30秒版）を制作するプロジェクトです。
+高知県土佐市の海沿いにあるカフェ「MAZE WIND RETREAT」の30秒動画2本（屋外サイネージ版とInstagram版）を制作するプロジェクトです。
 
 ## 最初に読むもの
-- `BRIEF.md` — Creative Rules（**FIXED RULESは変更禁止**）、15秒版と30秒版の目的、作業手順
+- `BRIEF.md` — Creative Rules（**FIXED RULESは変更禁止**）、サイネージ版とInstagram版の目的、作業手順
 - `SHOOTING_GUIDE.md` — iPhone 16 Pro Maxでの撮影ガイド
+- `FOOD_SHOOTING.md` — 料理（パスタ・ケーキ）の撮り方
 - `STORE_ASSETS_REQUEST.md` — お店にお願いする素材のリスト
 
 ## 守ること
