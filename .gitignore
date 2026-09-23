@@ -8,3 +8,9 @@ exports/**
 *.mp4
 *.MP4
 *.HEVC
+
+# 合成見本の作業ファイル（大きいのでGitに入れない）
+edl/mockups_work/
+__pycache__/
+edl/mockups/*.png
+edl/mockups/*.mp4

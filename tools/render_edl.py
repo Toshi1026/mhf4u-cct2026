@@ -129,6 +129,13 @@ def edl_md(key, r):
     if r.get("remaining"):
         out.append("> ⚠ 自動チェックで未解決の問題：" + "／".join(r["remaining"]))
         out.append("")
+    # 「【承認のお願い…】」で始まる注記は、承認のときに最初に読まれるよう、表の前に出す
+    asks = [x for x in e["notes_ja"] if x.startswith("【承認のお願い")]
+    for x in asks:
+        head, _, body = x.partition("】")
+        out += [f"## {head.lstrip('【')}", ""]
+        for line in body.strip().split("\n"):
+            out += [line, ""]
     out.append("| # | 時間 | 長さ | 素材 | 使う区間 | 速度 | クロップ | つなぎ | 文字 | 音 | 狙い |")
     out.append("|---|---|---|---|---|---|---|---|---|---|---|")
     for c in e["cuts"]:
@@ -146,9 +153,10 @@ def edl_md(key, r):
         out += ["## CapCutで行う作業", ""]
         out += [f"{i + 1}. {x}" for i, x in enumerate(e["capcut_tasks_ja"])]
         out.append("")
-    if e["notes_ja"]:
+    notes = [x for x in e["notes_ja"] if not x.startswith("【承認のお願い")]
+    if notes:
         out += ["## メモ・リスク", ""]
-        out += [f"- {x}" for x in e["notes_ja"]]
+        out += [f"- {x}" for x in notes]
         out.append("")
     crit = r.get("critiques") or []
     if crit:
