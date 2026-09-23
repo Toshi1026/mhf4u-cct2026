@@ -78,7 +78,8 @@ def board(edl, footage, out):
     width = max(width, LABEL_W + 900)
     canvas = Image.new("RGB", (width, len(rows) * (ROW_H + GAP) + 50), (18, 18, 18))
     d = ImageDraw.Draw(canvas)
-    d.text((10, 10), f"{edl['version']}  {edl['target_s']:g}s  ({len(edl['cuts'])} cuts)", fill=(255, 255, 255), font=font(28))
+    d.text((10, 10), f"{edl['target_s']:g}秒・{len(edl['cuts'])}カット ／ 画像は切り出し前の元の画（実際はEDLのクロップ指定どおりに切り出す）",
+           fill=(255, 255, 255), font=font(28))
     y = 50
     for label, frames in rows:
         for i, line in enumerate(label):
