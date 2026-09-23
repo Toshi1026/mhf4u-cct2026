@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
-"""サイネージ2本（30秒版・15秒版）で共通にする「右下のマーク」「ENDの中央」「右下の減光」の数値表と描画。
+"""サイネージ2本（30秒版・15秒版）で共通にする「右下のマーク」「END」「右下の減光」「出方」の数値表と描画。
 
-この表が唯一の正（2026-09-23、サイネージ30秒版 v4 で作成）。30秒版・15秒版のEDLはここを参照し、
+この表が唯一の正（2026-09-23 確定版）。30秒版・15秒版のEDLはここを参照し、
 モックアップも、CapCutに置く透過PNGも、このファイルから作る。値を変えるときは2本同時に変わる。
+
+2026-09-23 のユーザーの決定：ENDは③（「代案A＋店名の行」）を既定にする。
+  右下のマークはENDのカットに入る直前（E−0.6→E秒）に消え、ENDでは海の上の中央に
+  正式ロゴ＋「MAZE WIND~RETREAT」＋「高知県土佐市」の1組を出す。既定案（右下を常時表示し、
+  中央は「高知県土佐市」だけ）と代案A（ロゴ＋「高知県土佐市」だけ）は検討のうえ不採用にしたので、
+  このファイルには持たない。
 
   python3 edl/mockups/signage_spec.py --overlays DIR
       CapCutに置く透過PNGを DIR に書き出す（1920x1080 と 3840x2160 の両方）。
         signage_corner_<W>x<H>.png   右下のマーク（正式ロゴ＋「MAZE WIND~RETREAT」＋影）
-        signage_end_<W>x<H>.png      ENDの中央（既定：「高知県土佐市」の1行＋影）
-        signage_endlogo_<W>x<H>.png  ENDの中央（代案A：ロゴ＋「高知県土佐市」＋影）
+        signage_end_<W>x<H>.png      END（正式ロゴ＋「MAZE WIND~RETREAT」＋「高知県土佐市」＋影）
       CapCutでは位置0・拡大100%・回転0で置くだけ。文字機能・影機能は使わない。
   python3 edl/mockups/signage_spec.py --report
-      1080pでの位置（px・%）を表示する。
+      1080pでの位置（px・%）と、出方の時刻（30秒版・15秒版）を表示する。
 
 減光（右下の楕円）はPNGにせず、Claudeが書き出す各カットのクリップに焼き込む（素材ごとの強さは DIM_EV）。
 大きさ・位置はすべて画面の高さ h・幅 w に対する割合なので、1080pでも4Kでも同じ見え方になる。
+ロゴは assets/logo_white.png だけを使う（縦横比はファイルのまま。加工した版は使わない）。
 """
+import hashlib
 import os
 import sys
 
@@ -24,78 +31,73 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 LOGO_PATH = os.path.join(ROOT, 'assets', 'logo_white.png')
-FONT_DIRS = ['/tmp/claude-0/fonts', os.path.expanduser('~/.fonts'), '/usr/share/fonts/truetype/noto',
-             '/usr/share/fonts/opentype/noto']
+FONT_DIRS = [os.path.join(ROOT, 'assets', 'fonts'), '/tmp/claude-0/fonts', os.path.expanduser('~/.fonts'),
+             '/usr/share/fonts/truetype/noto', '/usr/share/fonts/opentype/noto']
+FONT_SHA256 = {   # assets/fonts/ の Noto Sans JP（fontsource 5.3.0、Version 2.004。IGの2本と同じファイル）
+    'Light': '10387105d854fd95d8a7e9e78e42a17947aad2c9057f958a88ceceb597f85d2b',
+    'Regular': '25d059a3d0fac5de6c5b0d1fa7c32c7ce5d85befca1752ef2eec8be9a2345158',
+    'Medium': '29f6b29939a779e33601cbbe05f158e4b1568809eaf46b5e8d43cb7092e82412',
+}
 
 # ---------------------------------------------------------------------------
 # 共通の数値表（h＝画面の高さ、w＝画面の幅）
 # ---------------------------------------------------------------------------
-SHADOW = [(0.003, 0.65), (0.012, 0.30)]   # 影：黒・ずらしなし。(ガウスのσ[h比], 不透明度) の2層。縁取り・帯・グラデーションは使わない
+# 影：黒・ずらしなし。(ガウスのσ[h比], 不透明度) の2層。縁取り・帯・グラデーションは使わない
+SHADOW = [(0.003, 0.65), (0.012, 0.30)]           # 文字（右下の店名の行・ENDの2行）
+SHADOW_LOGO = [(0.0012, 0.40), (0.0060, 0.22)]    # ロゴ（IGの2本と同じ値。4本で共通）
 
 CORNER = dict(                 # 右下のマーク
-    logo_h=0.090,              # ロゴの見えている円の高さ 9.0%h（1080pで97px）
-    right=0.050,               # 円の右端：画面の右端から 5.0%w 内側
-    bottom=0.050,              # 円の下端：画面の下端から 5.0%h 内側
+    logo_h=0.090,              # ロゴの見えている部分の高さ 9.0%h（1080pで97px、幅101px）
+    right=0.050,               # ロゴの右端：画面の右端から 5.0%w 内側
+    bottom=0.050,              # ロゴの下端：画面の下端から 5.0%h 内側
     line='MAZE WIND~RETREAT',  # 半角チルダ U+007E、前後に空白なし
     weight='Regular',
-    size=0.022,                # 文字サイズ（1em）2.2%h（大文字の高さは約1.6%h）
+    size=0.022,                # 文字サイズ（1em）2.2%h（大文字の高さは約1.6%h＝1080pで約17px）
     track=0.15,                # 字間 0.15em
-    gap=0.010,                 # 行の右端（インク）〜円の左端 1.0%w
+    gap=0.010,                 # 行の右端（インク）〜ロゴの左端 1.0%w
     opacity=1.0,
 )
 
-END = dict(                    # ENDの中央・既定（右下を出したまま、地名だけを海に浮かべる）
-    line='高知県土佐市',
-    weight='Regular',
-    size=0.036,                # 文字サイズ 3.6%h（1080pで39px）
-    track=0.30,                # 字間 0.30em
-    center_y=0.500,            # インクの縦の中心 50%h（水平線41%の下の海の上）
+END = dict(                    # END（③：正式ロゴの右に、店名と所在地の2行を左そろえで積んだ1組を中央に置く）
+    logo_h=0.160,              # ロゴの見えている部分の高さ 16%h（1080pで173px）
+    gap=0.018,                 # ロゴの右端〜2行の左端 1.8%w
+    center_y=0.530,            # ロゴと2行のブロックの縦の中心 53%h（水平線41%の下の海の上）
+    line1=dict(text='MAZE WIND~RETREAT', weight='Regular', size=0.036, track=0.15),  # 大文字の高さ約2.6%h
+    line2=dict(text='高知県土佐市', weight='Regular', size=0.027, track=0.30),
+    leading=0.020,             # 1行目の下端〜2行目の上端（インク）2.0%h
     opacity=1.0,
-)
-
-END_LOGO = dict(               # ENDの中央・代案A（右下を消し、ロゴと地名の1組を中央に出す）
-    logo_h=0.160,              # ロゴの見えている円の高さ 16%h
-    gap=0.018,                 # 円の右端〜文字の左端 1.8%w。1組全体を左右中央に置く
-    center_y=0.520,            # 円と文字の縦の中心 52%h
-    line='高知県土佐市', weight='Regular', size=0.036, track=0.30,
-    opacity=1.0,
+    # 予備案（運営側の回答で、歩行者が2〜3mで立ち止まって見る場所だと分かった場合だけ）：
+    # 「高知県土佐市」の下に同じ行間で3行目を足す。既定では描かない（enabled=False）。
+    handle=dict(enabled=False, text='@mazewind2026', weight='Regular', size=0.022, track=0.15),
 )
 
 DIM = dict(                    # 右下の減光（楕円、リニア光で露出を下げる。各クリップに焼き込む）
-    w=0.30, h=0.22,            # 楕円の幅 30%w × 高さ 22%h。中心は右下のマーク全体（行の左端〜円の右端、円の中心の高さ）
+    w=0.30, h=0.22,            # 楕円の幅 30%w × 高さ 22%h。中心は右下のマーク全体（行の左端〜ロゴの右端、ロゴの中心の高さ）
     feather=0.040,             # 境目のぼかし σ 4.0%h
 )
-DIM_EV = {                     # 素材ごとの強さ（同じ素材は2本とも同じ値）
-    'IMG_9631': -0.70,         # 白波の帯（いちばん明るい背景）
+DIM_EV = {                     # 素材ごとの強さ（同じ素材は2本とも同じ値）。ENDのクリップには減光をかけない
+    'IMG_9631': -0.70,         # 白波の帯（いちばん明るい背景。30秒版のカット1）
     'IMG_9665': -0.50,         # 河口の砂州・水路
     'IMG_9674': -0.30,         # 店内（暗い）
-    'IMG_9658': -0.25,         # 砂利浜（一様な面なので、強いと灰色の楕円が見える）
     'FOOD': -0.30,             # 料理＋水平線（撮影後に実測して決める仮の値）
 }
 
+# 右下の空き：料理の撮影で、皿・グラス・手を置かない範囲（右下のマークと、その影・減光がかかる範囲）
+RESERVED_FOOD = dict(x_from=0.68, y_from=0.79)   # 横68%より右・縦79%より下
+
 # 出方の決まり（E＝ENDのカットの頭、T＝ファイルの長さ。30秒版は E=20.70・T=30.00、15秒版は E=9.00・T=15.00）
-TIMING_RULES = dict(
-    default=dict(              # 既定：右下は全編に100%で出したまま（承認済みの「常時表示」）。減光も全カット
-        corner='0〜T 常に100%（フェードなし）',
-        dim='0〜T すべてのクリップに焼き込む（強さは素材ごと）',
-        end='E+1.0→E+1.6 でフェードイン、T−1.4→T−0.8 でフェードアウト',
-    ),
-    alt_a=dict(                # 代案A：ENDで右下から中央のロゴへ受け渡す（ユーザーが選んだ場合だけ）
-        corner='0→0.6 でフェードイン、E−0.6→E でフェードアウト（ENDのカットに入る前に消しきる）',
-        dim='0〜E のクリップだけに焼き込む（ENDのクリップにはかけない）',
-        end='E+0.3→E+0.9 でフェードイン、T−1.4→T−0.8 でフェードアウト',
-    ),
+FADE = 0.6                     # フェードの長さ（秒）。どれも直線
+TIMING_RULE = dict(
+    corner='0→0.6 でフェードイン、E−0.6→E でフェードアウト（ENDのカットに入る前に消しきる）',
+    dim='0〜E のクリップだけに焼き込む（ENDのクリップにはかけない）',
+    end='E+0.3→E+0.9 でフェードイン、T−1.4→T−0.8 でフェードアウト（最後の0.8秒は海だけでループの頭へ）',
 )
 
 
-def timing(mode, E, T):
-    """不透明度のキーフレーム [(秒, 0〜1), ...] を返す。"""
-    if mode == 'default':
-        return dict(corner=[(0.0, 1.0), (T, 1.0)],
-                    end=[(E + 1.0, 0.0), (E + 1.6, 1.0), (T - 1.4, 1.0), (T - 0.8, 0.0)],
-                    dim_until=T)
-    return dict(corner=[(0.0, 0.0), (0.6, 1.0), (E - 0.6, 1.0), (E, 0.0)],
-                end=[(E + 0.3, 0.0), (E + 0.9, 1.0), (T - 1.4, 1.0), (T - 0.8, 0.0)],
+def timing(E, T):
+    """不透明度のキーフレーム [(秒, 0〜1), ...] を返す。30秒版と15秒版で同じ式。"""
+    return dict(corner=[(0.0, 0.0), (FADE, 1.0), (E - FADE, 1.0), (E, 0.0)],
+                end=[(E + 0.3, 0.0), (E + 0.3 + FADE, 1.0), (T - 0.8 - FADE, 1.0), (T - 0.8, 0.0)],
                 dim_until=E)
 
 
@@ -111,10 +113,18 @@ def envelope(t, pts):
 # ---------------------------------------------------------------------------
 # 描画（4Kで描き、1080pは4Kを1/2に縮める。どちらも同じ形になる）
 # ---------------------------------------------------------------------------
+_FONT_CHECKED = set()
+
+
 def font_path(weight):
     for d in FONT_DIRS:
         p = os.path.join(d, 'NotoSansJP-%s.ttf' % weight)
         if os.path.exists(p):
+            if p not in _FONT_CHECKED and weight in FONT_SHA256:
+                _FONT_CHECKED.add(p)
+                with open(p, 'rb') as fh:
+                    if hashlib.sha256(fh.read()).hexdigest() != FONT_SHA256[weight]:
+                        print('警告：%s は承認時と別の版の書体です（字幅が変わるおそれ）' % p, file=sys.stderr)
             return p
     raise FileNotFoundError('NotoSansJP-%s.ttf' % weight)
 
@@ -123,7 +133,7 @@ _LOGO = None
 
 
 def logo_trimmed():
-    """ロゴPNGを、見えている円（不透明度>8/255）の外接矩形で切り出したもの。縦横比は変えない。"""
+    """ロゴPNGを、見えている部分（不透明度>8/255）の外接矩形で切り出したもの。縦横比は変えない。"""
     global _LOGO
     if _LOGO is None:
         lg = Image.open(LOGO_PATH).convert('RGBA')
@@ -173,85 +183,94 @@ def _paste_max(canvas, a, x, y):
 
 
 def layout(kind, W, H):
-    """kind: 'corner' | 'end' | 'endlogo'。ink（白の不透明度、0〜1のfloat配列）と、各要素の箱（px）を返す。"""
-    ink = np.zeros((H, W), np.float32)
+    """kind: 'corner' | 'end'。ロゴのインクと文字のインク（白の不透明度、0〜1のfloat配列）を別々に返す。
+    戻り値：(ink_logo, ink_text, boxes)。boxes は各要素のインクの外接枠（px）。"""
+    ink_l = np.zeros((H, W), np.float32)
+    ink_t = np.zeros((H, W), np.float32)
     boxes = {}
     if kind == 'corner':
         c = CORNER
         la = logo_alpha(c['logo_h'] * H)
         lx = W * (1 - c['right']) - la.width
         ly = H * (1 - c['bottom']) - la.height
-        _paste_max(ink, la, lx, ly)
+        _paste_max(ink_l, la, lx, ly)
         boxes['logo'] = (lx, ly, lx + la.width, ly + la.height)
         ta, cap_mid, tb = text_alpha(c['line'], c['weight'], c['size'] * H, c['track'])
         tx = lx - c['gap'] * W - tb[2]
         ty = ly + la.height / 2 - cap_mid
-        _paste_max(ink, ta, tx, ty)
+        _paste_max(ink_t, ta, tx, ty)
         boxes['line'] = (tx + tb[0], ty + tb[1], tx + tb[2], ty + tb[3])
     elif kind == 'end':
-        e = END
-        ta, cap_mid, tb = text_alpha(e['line'], e['weight'], e['size'] * H, e['track'])
-        tx = W / 2 - (tb[0] + tb[2]) / 2
-        ty = e['center_y'] * H - (tb[1] + tb[3]) / 2
-        _paste_max(ink, ta, tx, ty)
-        boxes['line'] = (tx + tb[0], ty + tb[1], tx + tb[2], ty + tb[3])
-    elif kind == 'endlogo':
-        e = END_LOGO
-        la = logo_alpha(e['logo_h'] * H)
-        ta, cap_mid, tb = text_alpha(e['line'], e['weight'], e['size'] * H, e['track'])
-        total = la.width + e['gap'] * W + (tb[2] - tb[0])
+        p = END
+        la = logo_alpha(p['logo_h'] * H)
+        rows = [p['line1'], p['line2']] + ([p['handle']] if p['handle'].get('enabled') else [])
+        drawn = [text_alpha(r['text'], r['weight'], r['size'] * H, r['track']) for r in rows]
+        hs = [tb[3] - tb[1] for _, _, tb in drawn]
+        block_h = sum(hs) + p['leading'] * H * (len(rows) - 1)
+        block_w = max(tb[2] - tb[0] for _, _, tb in drawn)
+        total = la.width + p['gap'] * W + block_w
         lx = (W - total) / 2
-        ly = e['center_y'] * H - la.height / 2
-        _paste_max(ink, la, lx, ly)
+        ly = p['center_y'] * H - la.height / 2
+        _paste_max(ink_l, la, lx, ly)
         boxes['logo'] = (lx, ly, lx + la.width, ly + la.height)
-        tx = lx + la.width + e['gap'] * W - tb[0]
-        ty = e['center_y'] * H - (tb[1] + tb[3]) / 2
-        _paste_max(ink, ta, tx, ty)
-        boxes['line'] = (tx + tb[0], ty + tb[1], tx + tb[2], ty + tb[3])
+        x_text = lx + la.width + p['gap'] * W
+        y = p['center_y'] * H - block_h / 2
+        for i, ((ta, _, tb), h) in enumerate(zip(drawn, hs)):
+            _paste_max(ink_t, ta, x_text - tb[0], y - tb[1])
+            boxes['line%d' % (i + 1)] = (x_text, y, x_text + tb[2] - tb[0], y + h)
+            y += h + p['leading'] * H
     else:
         raise ValueError(kind)
-    return ink, boxes
+    return ink_l, ink_t, boxes
 
 
-def shadow_of(ink, H):
-    """2層の柔らかい影の不透明度（0〜1）。"""
+def _shadow(ink, H, layers):
     img = Image.fromarray((ink * 255).round().astype(np.uint8))
     sh = np.zeros_like(ink)
-    for sigma, op in SHADOW:
+    for sigma, op in layers:
         b = np.asarray(img.filter(ImageFilter.GaussianBlur(sigma * H))).astype(np.float32) / 255.0
         sh = 1 - (1 - sh) * (1 - np.clip(b * op, 0, 1))
     return sh
+
+
+def shadow_of(ink_logo, ink_text, H):
+    """ロゴには SHADOW_LOGO、文字には SHADOW を別々にかけ、重ねた影の不透明度（0〜1）。"""
+    a = _shadow(ink_logo, H, SHADOW_LOGO)
+    b = _shadow(ink_text, H, SHADOW)
+    return 1 - (1 - a) * (1 - b)
 
 
 _CACHE = {}
 
 
 def planes(kind, W, H):
-    """(ink, shadow, boxes)。4Kで描いてから必要なら縮小する。"""
+    """(ink, shadow, boxes, ink_logo, ink_text)。4Kで描いてから必要なら縮小する。"""
     key = (kind, W, H)
     if key in _CACHE:
         return _CACHE[key]
-    if (W, H) == (3840, 2160) or W > 1920:
-        ink, boxes = layout(kind, W, H)
-        sh = shadow_of(ink, H)
+    if W >= 3840:
+        il, it, boxes = layout(kind, W, H)
+        sh = shadow_of(il, it, H)
     else:
         k = 3840 / W
-        ink4, boxes4 = planes(kind, 3840, 2160)[0], planes(kind, 3840, 2160)[2]
-        sh4 = planes(kind, 3840, 2160)[1]
-        ink = np.asarray(Image.fromarray(ink4).resize((W, H), Image.BOX)).astype(np.float32)
-        sh = np.asarray(Image.fromarray(sh4).resize((W, H), Image.BOX)).astype(np.float32)
+        _, sh4, boxes4, il4, it4 = planes(kind, 3840, 2160)
+
+        def down(a):
+            return np.asarray(Image.fromarray(a).resize((W, H), Image.BOX)).astype(np.float32)
+        il, it, sh = down(il4), down(it4), down(sh4)
         boxes = {n: tuple(v / k for v in b) for n, b in boxes4.items()}
-    _CACHE[key] = (ink, sh, boxes)
+    ink = np.maximum(il, it)
+    _CACHE[key] = (ink, sh, boxes, il, it)
     return _CACHE[key]
 
 
 def opacity_of(kind):
-    return {'corner': CORNER, 'end': END, 'endlogo': END_LOGO}[kind]['opacity']
+    return {'corner': CORNER, 'end': END}[kind]['opacity']
 
 
 def rgba(kind, W, H):
     """CapCutに置く透過PNG（白の文字・ロゴ＋黒の影、ストレートアルファ）。"""
-    ink, sh, _ = planes(kind, W, H)
+    ink, sh = planes(kind, W, H)[:2]
     op = opacity_of(kind)
     a_ink = ink * op
     a = a_ink + sh * op * (1 - a_ink)
@@ -264,7 +283,7 @@ def comp(frame, kind, opacity=1.0):
     if opacity <= 0:
         return frame
     W, H = frame.size
-    ink, sh, _ = planes(kind, W, H)
+    ink, sh = planes(kind, W, H)[:2]
     op = opacity_of(kind) * opacity
     rgb = np.asarray(frame).astype(np.float32)
     rgb = rgb * (1 - (sh * op)[..., None])
@@ -273,10 +292,68 @@ def comp(frame, kind, opacity=1.0):
 
 
 # ---------------------------------------------------------------------------
+# 読みやすさの測定（4本で同じ測り方。IGの2本の contrast() と同じ）
+# WCAGの相対輝度で、字の芯（アルファ≥0.9）と、字のすぐ外1〜3px（アルファ<0.02）の平均の比。影込み。
+# ---------------------------------------------------------------------------
+def rel_lum(img):
+    a = np.asarray(img.convert('RGB')).astype(np.float32) / 255.0
+    lin = np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+    return lin @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+
+
+def contrast(composited, alpha, box, pad=6):
+    """composited：重ねたあとの画。alpha：その要素だけのインク（0〜1のfloat、画面と同じ大きさ）。box：外接枠。"""
+    Hh, Ww = alpha.shape
+    x0, y0, x1, y1 = [int(round(v)) for v in box]
+    x0, y0, x1, y1 = max(x0 - pad, 0), max(y0 - pad, 0), min(x1 + pad, Ww), min(y1 + pad, Hh)
+    Y = rel_lum(composited)[y0:y1, x0:x1]
+    a = alpha[y0:y1, x0:x1]
+    core = a >= 0.9
+    near = np.asarray(Image.fromarray(((a > 0.5) * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(7))) > 0
+    ring = near & (a < 0.02)
+    if core.sum() == 0 or ring.sum() == 0:
+        return float('nan')
+    return (float(Y[core].mean()) + 0.05) / (float(Y[ring].mean()) + 0.05)
+
+
+def outer_ring_masks(il, core_min=0.6):
+    """ロゴの外周の線（外縁から内側4px以内のインク）と、そのすぐ外1〜3px の画素のマスク。"""
+    m = Image.fromarray(((il > 0.5) * 255).astype(np.uint8)).copy()
+    ImageDraw.floodfill(m, (0, 0), 128)
+    disk = np.asarray(m) != 128
+    d = Image.fromarray((disk * 255).astype(np.uint8))
+    inner = np.asarray(d.filter(ImageFilter.MinFilter(9))) > 0
+    grown = np.asarray(d.filter(ImageFilter.MaxFilter(7))) > 0
+    return (il >= core_min) & ~inner, grown & ~disk & (il < 0.02)
+
+
+def contrast_masks(composited, core, ring):
+    Y = rel_lum(composited)
+    return (float(Y[core].mean()) + 0.05) / (float(Y[ring].mean()) + 0.05)
+
+
+def measure(composited, kind):
+    """kind の各要素のコントラスト比を dict で返す（重ねたあとの画で測る）。
+    logo_outer：ロゴの外周の線とそのすぐ外（「円のまわり」）。logo：ロゴの線全体とそのすぐ外。line*：各行。"""
+    W, H = composited.size
+    _, _, b, il, it = planes(kind, W, H)
+    out = {'logo_outer': contrast_masks(composited, *outer_ring_masks(il)),
+           'logo': contrast(composited, il, b['logo'])}
+    for n in b:
+        if n.startswith('line'):
+            m = np.zeros_like(it)
+            x0, y0, x1, y1 = [int(round(v)) for v in b[n]]
+            sl = (slice(max(y0 - 2, 0), y1 + 2), slice(max(x0 - 2, 0), x1 + 2))
+            m[sl] = it[sl]
+            out[n] = contrast(composited, m, b[n])
+    return out
+
+
+# ---------------------------------------------------------------------------
 # 減光（クリップに焼き込む）
 # ---------------------------------------------------------------------------
 def corner_group_center(W, H):
-    _, _, b = planes('corner', W, H)
+    b = planes('corner', W, H)[2]
     return (b['line'][0] + b['logo'][2]) / 2, (b['logo'][1] + b['logo'][3]) / 2
 
 
@@ -312,14 +389,18 @@ def apply_dim(frame, ev):
 
 
 def report(W=1920, H=1080):
-    for kind in ('corner', 'end', 'endlogo'):
-        _, _, b = planes(kind, W, H)
+    for kind in ('corner', 'end'):
+        b = planes(kind, W, H)[2]
         for n, (x0, y0, x1, y1) in b.items():
-            print('%-8s %-5s x %7.1f-%7.1f (%.1f-%.1f%%w)  y %6.1f-%6.1f (%.1f-%.1f%%h)  %dx%d px  center (%.0f, %.0f)' % (
+            print('%-7s %-6s x %7.1f-%7.1f (%.1f-%.1f%%w)  y %6.1f-%6.1f (%.1f-%.1f%%h)  %dx%d px' % (
                 kind, n, x0, x1, x0 / W * 100, x1 / W * 100, y0, y1, y0 / H * 100, y1 / H * 100,
-                round(x1 - x0), round(y1 - y0), (x0 + x1) / 2, (y0 + y1) / 2))
+                round(x1 - x0), round(y1 - y0)))
     cx, cy = corner_group_center(W, H)
     print('dim ellipse center (%.1f%%w, %.1f%%h)' % (cx / W * 100, cy / H * 100))
+    for name, E, T in (('30秒版', 20.70, 30.00), ('15秒版', 9.00, 15.00)):
+        tm = timing(E, T)
+        print(name, 'corner', [(round(a, 2), b) for a, b in tm['corner']],
+              'end', [(round(a, 2), b) for a, b in tm['end']], 'dim 0〜%.2f' % E)
 
 
 def main():
@@ -327,7 +408,7 @@ def main():
         d = sys.argv[2]
         os.makedirs(d, exist_ok=True)
         for (W, H) in ((3840, 2160), (1920, 1080)):
-            for kind in ('corner', 'end', 'endlogo'):
+            for kind in ('corner', 'end'):
                 p = os.path.join(d, 'signage_%s_%dx%d.png' % (kind, W, H))
                 rgba(kind, W, H).save(p)
                 print(p)

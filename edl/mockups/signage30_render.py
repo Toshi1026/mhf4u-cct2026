@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""サイネージ30秒版（EDL v4）のモックアップ。
+"""サイネージ30秒版（EDL v5・2026-09-23 確定版）のモックアップ。
 
 実素材（HDR/HLG）から、EDLの区間の「何コマ目」を1枚取り出してトーンマップし、EDLと同じ
-拡大・回転・位置・減光をかけ、右下のマークとENDの中央を共通の数値表（signage_spec.py）で重ねる。
+拡大・回転・位置・減光をかけ、右下のマークとENDを共通の数値表（signage_spec.py）で重ねる。
+ENDは③（右下のマークを20.10→20.70秒で消し、中央に正式ロゴ＋「MAZE WIND~RETREAT」＋「高知県土佐市」）だけを描く。
 
-  python3 edl/mockups/signage30_render.py           # モックアップを edl/mockups/ に書き出す
+  python3 edl/mockups/signage30_render.py           # モックアップを edl/mockups/ に書き出す（コントラスト比も表示）
+  python3 edl/mockups/signage30_render.py --measure # コントラスト比（4本共通の測り方）だけを表示する
 """
 import math
 import os
@@ -101,24 +103,42 @@ def source_frame(t):
     return c, src, idx, pts_of(src)[idx]
 
 
-def plate(t, W=1920, H=1080, mode='default', dim=True):
+def plate(t, W=1920, H=1080, dim=True, ev=None):
     """減光まで入れたクリップの1コマ（重ねる前）。"""
     c, src, idx, sec = source_frame(t)
     if src is None:
         return Image.new('RGB', (W, H), (0, 0, 0)), (c[0], None, None, None)
     fr = capcut_transform(grab(src, idx), c[6], lerp(c[7], sec), c[8], c[9], W, H)
-    if dim and t < S.timing(mode, E, T)['dim_until']:
-        fr = S.apply_dim(fr, S.DIM_EV[src])
+    if dim and t < S.timing(E, T)['dim_until']:
+        fr = S.apply_dim(fr, S.DIM_EV[src] if ev is None else ev)
     return fr, (c[0], src, idx, sec)
 
 
-def render(t, W=1920, H=1080, mode='default', force_end=None):
-    fr, info = plate(t, W, H, mode)
-    tm = S.timing(mode, E, T)
+def render(t, W=1920, H=1080, force_end=None, ev=None):
+    fr, info = plate(t, W, H, ev=ev)
+    tm = S.timing(E, T)
     fr = S.comp(fr, 'corner', S.envelope(t, tm['corner']))
     a = S.envelope(t, tm['end']) if force_end is None else force_end
-    fr = S.comp(fr, 'end' if mode == 'default' else 'endlogo', a)
+    fr = S.comp(fr, 'end', a)
     return fr, info
+
+
+def measure_at(t, ev=None):
+    tm = S.timing(E, T)
+    fr, info = plate(t, ev=ev)
+    out = {}
+    for kind in ('corner', 'end'):
+        if S.envelope(t, tm[kind]) >= 0.999:
+            out[kind] = S.measure(S.comp(fr, kind, 1.0), kind)
+    return out, info
+
+
+def measure_report():
+    for t in (0.60, 1.00, 2.00, 3.00, 4.00, 4.50, 5.00, 5.37, 5.40, 6.00, 6.50, 7.00, 7.60, 8.10, 8.67,
+              8.70, 9.30, 10.20, 11.00, 11.40, 11.67, 21.60, 23.00, 26.00, 28.60):
+        m, info = measure_at(t)
+        print('t=%5.2f %s  %s' % (t, info[1], '  '.join('%s:%s' % (k, ' '.join('%s %.2f' % (n, v) for n, v in d.items()))
+                                                      for k, d in m.items())))
 
 
 CHECK_TIMES = [  # 右下の等倍チェック（本編の秒, 説明）
@@ -126,8 +146,6 @@ CHECK_TIMES = [  # 右下の等倍チェック（本編の秒, 説明）
     (5.40, 'カット2 入り'), (6.50, 'カット2 砂州の縁'), (8.10, 'カット2 人影が円の縁'), (8.667, 'カット2 最終コマ'),
     (8.70, 'カット3 入り（素材6.70秒）'), (10.20, 'カット3 中（7.45秒）'), (11.40, 'カット3 幹が行の後ろ'),
     (11.667, 'カット3 最終コマ（8.19秒）'),
-    (20.70, 'カット6 入り（6.10秒）'), (23.00, 'カット6 スタビライズ区間'), (26.00, 'カット6 END'),
-    (29.967, 'カット6 最終コマ（10.74秒）'),
 ]
 
 
@@ -136,7 +154,8 @@ def corner_check(path):
     box = (1280, 880, 1920, 1080)
     cw, ch, lab, g = box[2] - box[0], box[3] - box[1], 30, 6
     f = ImageFont.truetype(S.font_path('Regular'), 20)
-    grid = Image.new('RGB', (4 * cw + 3 * g, 4 * (ch + lab) + 3 * g), (20, 20, 20))
+    rows = (len(CHECK_TIMES) + 3) // 4
+    grid = Image.new('RGB', (4 * cw + 3 * g, rows * (ch + lab) + (rows - 1) * g), (20, 20, 20))
     d = ImageDraw.Draw(grid)
     for i, (t, label) in enumerate(CHECK_TIMES):
         im, info = render(t)
@@ -151,24 +170,26 @@ def main():
     corner_check(os.path.join(OUT, 'signage_d_corner_check_1to1.png'))
     a, ia = render(2.00)
     b, ib = render(26.00)
-    b2, ib2 = render(26.00, mode='alt_a')
     print('a', ia, 'b', ib)
     a.save(os.path.join(OUT, 'signage_a_corner_brightest_rec02.00.png'))
     b.save(os.path.join(OUT, 'signage_b_end_rec26.00.png'))
-    b2.save(os.path.join(OUT, 'signage_b_alt-a_end_rec26.00.png'))
     box = (1280, 880, 1920, 1080)
-    for im, name in ((a, 'signage_a_corner_detail_2x.png'), (b, 'signage_b_corner_detail_2x.png')):
-        im.crop(box).resize(((box[2] - box[0]) * 2, (box[3] - box[1]) * 2), Image.NEAREST).save(os.path.join(OUT, name))
-    # 距離の目安：1/4（数メートル先）と1/8（道路の向こう）
+    a.crop(box).resize(((box[2] - box[0]) * 2, (box[3] - box[1]) * 2), Image.NEAREST).save(
+        os.path.join(OUT, 'signage_a_corner_detail_2x.png'))
+    ebox = (560, 440, 1360, 700)
+    b.crop(ebox).resize(((ebox[2] - ebox[0]) * 2, (ebox[3] - ebox[1]) * 2), Image.NEAREST).save(
+        os.path.join(OUT, 'signage_b_end_detail_2x.png'))
+    # 距離の目安：1/4（数メートル先）と1/8（道路の向こう）。左から a（右下）／b（END）
     for div, name in ((4, 'signage_c_distance_1-4.png'), (8, 'signage_c_distance_1-8.png')):
         w, h, g = W // div, H // div, 4
-        sm = Image.new('RGB', (w * 3 + g * 2, h), (0, 0, 0))
-        for i, im in enumerate((a, b, b2)):
+        sm = Image.new('RGB', (w * 2 + g, h), (0, 0, 0))
+        for i, im in enumerate((a, b)):
             sm.paste(im.resize((w, h), Image.LANCZOS), (i * (w + g), 0))
         sm.save(os.path.join(OUT, name))
         if div == 8:
             sm.resize((sm.width * 4, sm.height * 4), Image.BICUBIC).save(
                 os.path.join(OUT, 'signage_c_distance_1-8_view4x.png'))
+    measure_report()
 
 
 def motion(t0=0.0, t1=5.40, name='signage_g_cut1_motion_0-5.4s.mp4'):
@@ -189,5 +210,7 @@ def motion(t0=0.0, t1=5.40, name='signage_g_cut1_motion_0-5.4s.mp4'):
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--motion':
         motion()
+    elif len(sys.argv) > 1 and sys.argv[1] == '--measure':
+        measure_report()
     else:
         main()

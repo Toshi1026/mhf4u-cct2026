@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""サイネージ15秒版（EDL v5）のモックアップ。
+"""サイネージ15秒版（EDL v6・2026-09-23 確定版）のモックアップ。
 
 右下のマーク・ENDの中央・右下の減光・出方の決まりは、30秒版と共通の数値表
 signage_spec.py だけを使う（このファイルには持たない）。ここにあるのは15秒版のカット表だけ。
+ENDは③（右下のマークをENDの直前に消し、中央に正式ロゴ＋「MAZE WIND~RETREAT」＋「高知県土佐市」）だけを描く。
 
 実素材（HDR/HLG）から、EDLの区間の「何コマ目」を1枚取り出してトーンマップし、EDLと同じ
 拡大・回転・位置をかけ、素材ごとの減光を焼き込み、共通のPNGと同じ面を重ねる。
 
   python3 edl/mockups/signage15_render.py            # モックアップを edl/mockups/ に書き出す
   python3 edl/mockups/signage15_render.py --motion   # 0〜3秒を30fpsの動画にする（減光の楕円の見え方の確認）
+  python3 edl/mockups/signage15_render.py --measure  # 右下とENDのコントラスト比（4本共通の測り方）を表示する
   python3 edl/mockups/signage15_render.py --margins  # 各カットの最初・中・最後のコマで、画面の外が出ていないかを数える
 """
 import math
@@ -105,116 +107,39 @@ def source_frame(t):
     return c, src, idx, pts_of(src)[idx]
 
 
-def plate(t, W=1920, H=1080, mode='default', dim=True, ev=None):
+def plate(t, W=1920, H=1080, dim=True, ev=None):
     """減光まで焼き込んだクリップの1コマ（重ねる前）。ev で減光の強さを上書きできる（比較用）。"""
     c, src, idx, sec = source_frame(t)
     if src is None:
         return Image.new('RGB', (W, H), (0, 0, 0)), (c[0], None, None, None, None)
     rot = lerp(c[7], sec)
     fr = capcut_transform(grab(src, idx), c[6], rot, c[8], c[9], W, H)
-    if dim and t < S.timing(mode, E, T)['dim_until']:
+    if dim and t < S.timing(E, T)['dim_until']:
         fr = S.apply_dim(fr, S.DIM_EV[src] if ev is None else ev)
     return fr, (c[0], src, idx, round(sec, 4), round(rot, 3))
 
 
-# ---------------------------------------------------------------------------
-# 提案（共通の表にはまだ無い）：代案Aを選ぶ場合のENDの中央＝ロゴ＋2行（店名の行を足す）
-# 採用するときは signage_spec.py の END_LOGO に入れ、30秒版と同時に変える。
-# ---------------------------------------------------------------------------
-PROPOSAL_ENDLOGO_NAME = dict(
-    logo_h=0.160, gap=0.018, center_y=0.530,
-    line1=dict(text='MAZE WIND~RETREAT', weight='Regular', size=0.036, track=0.15),   # 大文字の高さ約2.6%h
-    line2=dict(text='高知県土佐市', weight='Regular', size=0.027, track=0.30),
-    leading=0.020,          # 1行目の下端〜2行目の上端（インク）
-    opacity=1.0,
-)
-_PROP = {}
-
-
-def proposal_planes(W, H):
-    if (W, H) in _PROP:
-        return _PROP[(W, H)]
-    p = PROPOSAL_ENDLOGO_NAME
-    W4, H4 = 3840, 2160
-    ink = np.zeros((H4, W4), np.float32)
-    la = S.logo_alpha(p['logo_h'] * H4)
-    t1, _, b1 = S.text_alpha(p['line1']['text'], p['line1']['weight'], p['line1']['size'] * H4, p['line1']['track'])
-    t2, _, b2 = S.text_alpha(p['line2']['text'], p['line2']['weight'], p['line2']['size'] * H4, p['line2']['track'])
-    h1, h2 = b1[3] - b1[1], b2[3] - b2[1]
-    block_h = h1 + p['leading'] * H4 + h2
-    block_w = max(b1[2] - b1[0], b2[2] - b2[0])
-    total = la.width + p['gap'] * W4 + block_w
-    lx = (W4 - total) / 2
-    ly = p['center_y'] * H4 - la.height / 2
-    S._paste_max(ink, la, lx, ly)
-    x_text = lx + la.width + p['gap'] * W4
-    y1 = p['center_y'] * H4 - block_h / 2
-    S._paste_max(ink, t1, x_text - b1[0], y1 - b1[1])
-    S._paste_max(ink, t2, x_text - b2[0], y1 + h1 + p['leading'] * H4 - b2[1])
-    boxes = {'logo': (lx, ly, lx + la.width, ly + la.height),
-             'line1': (x_text, y1, x_text + b1[2] - b1[0], y1 + h1),
-             'line2': (x_text, y1 + h1 + p['leading'] * H4, x_text + b2[2] - b2[0], y1 + block_h)}
-    sh = S.shadow_of(ink, H4)
-    if (W, H) != (W4, H4):
-        ink = np.asarray(Image.fromarray(ink).resize((W, H), Image.BOX)).astype(np.float32)
-        sh = np.asarray(Image.fromarray(sh).resize((W, H), Image.BOX)).astype(np.float32)
-        boxes = {n: tuple(v * W / W4 for v in b) for n, b in boxes.items()}
-    _PROP[(W, H)] = (ink, sh, boxes)
-    return _PROP[(W, H)]
-
-
-def comp_planes(frame, ink, sh, op):
-    if op <= 0:
-        return frame
-    rgb = np.asarray(frame).astype(np.float32)
-    rgb = rgb * (1 - (sh * op)[..., None])
-    rgb = rgb * (1 - (ink * op)[..., None]) + 255 * (ink * op)[..., None]
-    return Image.fromarray(rgb.round().clip(0, 255).astype(np.uint8))
-
-
-def render(t, W=1920, H=1080, mode='default', force_end=None, proposal=False, ev=None):
-    """mode: 'default'（右下は常時表示・中央は地名だけ）/ 'alt_a'（ENDで右下からロゴの1組へ受け渡す）。"""
-    fr, info = plate(t, W, H, mode, ev=ev)
-    tm = S.timing(mode, E, T)
+def render(t, W=1920, H=1080, ev=None, force_end=None):
+    """1コマを描く：減光を焼き込んだクリップ → 右下のマーク → END（どれも共通の出方の決まりどおり）。"""
+    fr, info = plate(t, W, H, ev=ev)
+    tm = S.timing(E, T)
     fr = S.comp(fr, 'corner', S.envelope(t, tm['corner']))
-    a = S.envelope(t, tm['end']) if force_end is None else force_end
-    if mode == 'alt_a' and proposal:
-        ink, sh, _ = proposal_planes(W, H)
-        fr = comp_planes(fr, ink, sh, PROPOSAL_ENDLOGO_NAME['opacity'] * a)
-    else:
-        fr = S.comp(fr, 'end' if mode == 'default' else 'endlogo', a)
+    fr = S.comp(fr, 'end', S.envelope(t, tm['end']) if force_end is None else force_end)
     return fr, info
 
 
 # ---------------------------------------------------------------------------
 # 測定
 # ---------------------------------------------------------------------------
-def luma(img):
-    a = np.asarray(img).astype(np.float32)
-    return 0.2126 * a[..., 0] + 0.7152 * a[..., 1] + 0.0722 * a[..., 2]
-
-
-def rel_lum(v):
-    v = v / 255.0
-    return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
-
-
-def under_corner(t, mode='default', ev=None, W=1920, H=1080):
-    """右下のマークの下の背景（減光後・重ねる前）：店名の行の下の平均と明るいほうの1割、ロゴの下の平均、白い文字とのコントラスト比。"""
-    fr, _ = plate(t, W, H, mode, ev=ev)
-    y = luma(fr)
-    _, _, b = S.planes('corner', W, H)
+def measure_at(t):
+    """その時刻に出ているもの（右下のマーク、END）のコントラスト比（signage_spec.contrast と同じ測り方）。"""
+    tm = S.timing(E, T)
+    fr, info = plate(t)
     out = {}
-    for n in ('line', 'logo'):
-        x0, y0, x1, y1 = [int(round(v)) for v in b[n]]
-        r = y[y0:y1, x0:x1]
-        out[n] = (float(r.mean()), float(np.percentile(r, 90)))
-    bg = rel_lum(np.array(out['line'][0]))
-    bg90 = rel_lum(np.array(out['line'][1]))
-    white = rel_lum(np.array(255.0 * 1.0))
-    out['contrast'] = float((white + 0.05) / (bg + 0.05))
-    out['contrast90'] = float((white + 0.05) / (bg90 + 0.05))
-    return out
+    for kind in ('corner', 'end'):
+        if S.envelope(t, tm[kind]) >= 0.999:
+            out[kind] = S.measure(S.comp(fr, kind, 1.0), kind)
+    return out, info
 
 
 def label(img, text, size=28):
@@ -240,43 +165,40 @@ def main():
     j = lambda n: os.path.join(OUT, n)  # noqa: E731
     a, ia = render(2.00)
     b, ib = render(12.00)
-    b_alt, _ = render(12.00, mode='alt_a')
-    b_prop, _ = render(12.00, mode='alt_a', proposal=True)
     d, idd = render(3.00)
     print('a', ia, 'b', ib, 'cut2', idd)
     a.save(j('signage15_a_corner_brightest_t02.00.png'))
     b.save(j('signage15_b_end_t12.00.png'))
-    b_alt.save(j('signage15_b_alt-a_end_t12.00.png'))
-    b_prop.save(j('signage15_b_alt-a-name_end_t12.00.png'))
     d.save(j('signage15_d_cut2_in_t03.00.png'))
     box = (1280, 880, 1920, 1080)
-    for im, n in ((a, 'signage15_a_corner_detail_2x.png'), (b, 'signage15_b_corner_detail_2x.png')):
-        im.crop(box).resize(((box[2] - box[0]) * 2, (box[3] - box[1]) * 2), Image.NEAREST).save(j(n))
+    a.crop(box).resize(((box[2] - box[0]) * 2, (box[3] - box[1]) * 2), Image.NEAREST).save(
+        j('signage15_a_corner_detail_2x.png'))
+    ebox = (560, 440, 1360, 700)
+    b.crop(ebox).resize(((ebox[2] - ebox[0]) * 2, (ebox[3] - ebox[1]) * 2), Image.NEAREST).save(
+        j('signage15_b_end_detail_2x.png'))
     d.crop((0, 0, 640, 360)).resize((1280, 720), Image.NEAREST).save(j('signage15_d_cut2_in_topleft_2x.png'))
 
-    # 距離の目安：1/4（数メートル先）、1/6、1/8（道路の向こう）。左から a／b（既定）／b（代案A）／b（代案A＋店名の行）
+    # 距離の目安：1/4（数メートル先）、1/6、1/8（道路の向こう）。左から a（右下）／b（END）
     for div in (4, 6, 8):
         w, h = W // div, H // div
-        sm = grid([im.resize((w, h), Image.LANCZOS) for im in (a, b, b_alt, b_prop)], 4, gap=4, bg=(0, 0, 0))
+        sm = grid([im.resize((w, h), Image.LANCZOS) for im in (a, b)], 2, gap=4, bg=(0, 0, 0))
         sm.save(j('signage15_c_distance_1-%d.png' % div))
         if div == 8:
             sm.resize((sm.width * 4, sm.height * 4), Image.BICUBIC).save(j('signage15_c_distance_1-8_view4x.png'))
 
-    # ENDに入る前後（上2段＝既定、下2段＝代案A）：8.70〜10.60秒。カット3は撮影待ちの黒地
-    ts = [8.70, 8.97, 9.00, 9.30, 9.60, 9.90, 10.30, 10.60]
-    rows = []
-    for mode in ('default', 'alt_a'):
-        for t in ts:
-            fr, _ = render(t, mode=mode)
-            rows.append(label(fr.resize((480, 270), Image.LANCZOS),
-                              '%s %.2f秒' % ('既定' if mode == 'default' else '代案A', t), 18))
+    # ENDに入る前後：8.20〜10.20秒。カット3は撮影待ちの黒地
+    ts = [8.20, 8.40, 8.70, 8.97, 9.00, 9.30, 9.60, 9.90]
+    rows = [label(render(t)[0].resize((480, 270), Image.LANCZOS), '%.2f秒' % t, 18) for t in ts]
     grid(rows, 4).save(j('signage15_f_end_transition_strip.png'))
+    measure_report()
 
-    # 右下の背景の測定（既定の減光）
-    for t in (0.30, 1.30, 2.00, 2.30, 2.70, 3.10, 4.00, 4.50, 5.00, 5.50, 5.90, 9.10, 10.0, 11.0, 12.0, 13.0, 14.0, 14.9):
-        m = under_corner(t)
-        print('t=%5.2f  line mean %5.1f p90 %5.1f  logo mean %5.1f  contrast %.2f (p90 %.2f)' % (
-            t, m['line'][0], m['line'][1], m['logo'][0], m['contrast'], m['contrast90']))
+
+def measure_report():
+    for t in (0.60, 1.30, 2.00, 2.30, 2.70, 3.10, 4.00, 4.50, 5.00, 5.50, 5.90, 8.40,
+              9.90, 11.0, 12.0, 13.0, 13.6):
+        m, info = measure_at(t)
+        print('t=%5.2f %s  %s' % (t, info[1], '  '.join('%s:%s' % (k, ' '.join('%s %.2f' % (n, v) for n, v in d.items()))
+                                                      for k, d in m.items())))
 
 
 def margins():
@@ -308,6 +230,8 @@ def motion():
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--motion':
         motion()
+    elif len(sys.argv) > 1 and sys.argv[1] == '--measure':
+        measure_report()
     elif len(sys.argv) > 1 and sys.argv[1] == '--margins':
         margins()
     else:
