@@ -3,8 +3,8 @@
 
 Usage: python3 analyze.py <footage_dir> <out_dir>
 
-Writes <out_dir>/report.md, <out_dir>/report.csv and a contact sheet per clip
-(<out_dir>/sheets/<name>.jpg) for visual review.
+Writes <out_dir>/report.md and <out_dir>/report.csv. Contact sheets for
+visual review come from sheets.py.
 """
 import csv
 import subprocess
@@ -20,7 +20,7 @@ VIDEO_EXT = {".mov", ".mp4", ".m4v", ".hevc"}
 IMAGE_EXT = {".jpg", ".jpeg", ".heic", ".png", ".tif", ".tiff", ".dng"}
 
 # Analysis frames: small grayscale frames are enough for exposure and shake.
-AW, AH = 160, 284  # 9:16 thumbnail; landscape clips get letterboxed by scale+pad
+SHORT, LONG = 160, 284  # short/long side of the analysis frame, orientation kept
 SAMPLE_FPS = 10
 
 
@@ -61,15 +61,14 @@ def media_info(path):
     return d
 
 
-def gray_frames(path, fps=SAMPLE_FPS):
-    vf = (
-        f"fps={fps},scale={AW}:{AH}:force_original_aspect_ratio=decrease,"
-        f"pad={AW}:{AH}:(ow-iw)/2:(oh-ih)/2,format=gray"
-    )
+def gray_frames(path, vertical, fps=SAMPLE_FPS):
+    # No letterboxing: padding would count as crushed blacks and pin the shake estimate.
+    w, h = (SHORT, LONG) if vertical else (LONG, SHORT)
+    vf = f"fps={fps},scale={w}:{h},format=gray"
     cmd = [FFMPEG, "-v", "error", "-i", str(path), "-vf", vf, "-f", "rawvideo", "-"]
     raw = subprocess.run(cmd, capture_output=True, check=True).stdout
-    n = len(raw) // (AW * AH)
-    return np.frombuffer(raw[: n * AW * AH], np.uint8).reshape(n, AH, AW).astype(np.float32)
+    n = len(raw) // (w * h)
+    return np.frombuffer(raw[: n * w * h], np.uint8).reshape(n, h, w).astype(np.float32)
 
 
 def shift(a, b):
@@ -78,6 +77,7 @@ def shift(a, b):
     r = fa * np.conj(fb)
     r /= np.abs(r) + 1e-6
     c = np.abs(np.fft.ifft2(r))
+    AH, AW = c.shape
     iy, ix = np.unravel_index(np.argmax(c), c.shape)
 
     def sub(m, p, z):  # parabolic sub-pixel refinement around the peak
@@ -93,10 +93,11 @@ def shift(a, b):
     return x, y
 
 
-def quality(path):
-    f = gray_frames(path)
+def quality(path, vertical):
+    f = gray_frames(path, vertical)
     if len(f) < 2:
         return {}
+    _, AH, AW = f.shape
     win = np.hanning(AH)[:, None] * np.hanning(AW)[None, :]
     moves = np.array([shift(f[i] * win, f[i + 1] * win) for i in range(len(f) - 1)], float)
     path_xy = np.cumsum(moves, axis=0)
@@ -110,20 +111,9 @@ def quality(path):
         "luma_mean": round(float(f.mean()), 1),
         "clip_hi_pct": round(float((f >= 250).mean() * 100), 2),
         "crush_lo_pct": round(float((f <= 5).mean() * 100), 2),
-        "shake_px": round(jitter, 2),  # at 160px width; ~0.6 smooth move, >0.9 handheld jitter
+        "shake_px": round(jitter, 2),  # at 160px short side; ~0.6 smooth move, >0.9 handheld jitter
         "camera_travel_px": round(travel, 1),
     }
-
-
-def contact_sheet(path, out, duration):
-    n = 6
-    step = max(duration / (n + 1), 0.1)
-    vf = f"fps=1/{step:.3f},scale=360:-2,tile={n}x1:padding=4"
-    subprocess.run(
-        [FFMPEG, "-v", "error", "-y", "-ss", f"{step/2:.2f}", "-i", str(path),
-         "-vf", vf, "-frames:v", "1", "-q:v", "4", str(out)],
-        check=False,
-    )
 
 
 def verdict(d):
@@ -140,14 +130,12 @@ def verdict(d):
         notes.append("crushed shadows")
     if d.get("shake_px", 0) > 0.9:
         notes.append("shaky")
-    if d.get("orientation") == "horizontal":
-        notes.append("horizontal: 9:16 crop")
     return "; ".join(notes)
 
 
 def main():
     src, out = Path(sys.argv[1]), Path(sys.argv[2])
-    (out / "sheets").mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
     rows = []
     files = sorted(p for p in src.rglob("*") if p.is_file())
     for p in files:
@@ -155,10 +143,9 @@ def main():
         if ext in VIDEO_EXT:
             d = media_info(p)
             try:
-                d.update(quality(p))
+                d.update(quality(p, d.get("orientation") == "vertical"))
             except subprocess.CalledProcessError as e:
                 d["error"] = e.stderr.decode(errors="ignore")[-200:]
-            contact_sheet(p, out / "sheets" / f"{p.stem}.jpg", d.get("duration_s", 1))
             d["type"] = "video"
         elif ext in IMAGE_EXT:
             d = {"file": p.name, "type": "image", "size_mb": round(p.stat().st_size / 1e6, 1)}
@@ -177,7 +164,7 @@ def main():
         w.writeheader()
         w.writerows(rows)
 
-    cols = ["path", "duration_s", "width", "height", "fps", "dynamic_range", "codec",
+    cols = ["path", "duration_s", "orientation", "width", "height", "fps", "dynamic_range", "codec",
             "audio", "luma_mean", "clip_hi_pct", "shake_px", "flags"]
     lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     for r in rows:
