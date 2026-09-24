@@ -23,6 +23,8 @@ CATEGORY = {
 VERSION = {
     "signage": "屋外サイネージ 30秒（横 1920×1080・無音・ループ）",
     "signage15": "屋外サイネージ 15秒（横 1920×1080・無音・ループ）",
+    "signage_cake": "屋外サイネージ 30秒・ケーキ入り（撮影後に使う版）",
+    "signage15_cake": "屋外サイネージ 18秒・ケーキ入り（撮影後に使う版）",
     "ig30": "Instagram 30秒（縦 1080×1920）",
     "ig15": "Instagram 15秒（縦 1080×1920）",
 }
@@ -171,7 +173,7 @@ def main():
     facts = json.load(open("/tmp/claude-0/wf/facts.json")) if Path("/tmp/claude-0/wf/facts.json").exists() else {}
     (d / "CATALOG.md").write_text(catalog_md(res, facts))
     (d / "GAPS.md").write_text(gaps_md(res))
-    names = {"signage": "EDL_signage30.md", "signage15": "EDL_signage15.md", "ig30": "EDL_ig30.md", "ig15": "EDL_ig15.md"}
+    names = {"signage": "EDL_signage30.md", "signage15": "EDL_signage15.md", "signage_cake": "EDL_signage30_cake.md", "signage15_cake": "EDL_signage18_cake.md", "ig30": "EDL_ig30.md", "ig15": "EDL_ig15.md"}
     for key, r in (res.get("edls") or {}).items():
         if r and r.get("edl"):
             (d / names.get(key, f"EDL_{key}.md")).write_text(edl_md(key, r))
