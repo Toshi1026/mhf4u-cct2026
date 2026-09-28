@@ -1,0 +1,5 @@
+{
+ "_説明": "撮り直したクリップへの差し替え表。使うときは clip_overrides.json という名前でコピーする。キーは Composition 名 → EDL のカット番号。パスは maze/ からの相対か絶対パス",
+ "Signage30Cake": {"5": "exports/capcut/proposals/signage30_cake/05_IMG_9800_cake.mp4"},
+ "Signage18Cake": {"4": "exports/capcut/proposals/signage15_cake/04_IMG_9800_cake.mp4"}
+}

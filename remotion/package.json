@@ -1,0 +1,25 @@
+{
+  "name": "maze-remotion",
+  "version": "1.0.0",
+  "description": "MAZE WIND~RETREAT 動画6本の最終組み立て（Remotion）",
+  "scripts": {
+    "timeline": "python3 scripts/build_timeline.py",
+    "render": "node scripts/render.mjs",
+    "verify": "python3 scripts/verify.py",
+    "studio": "remotion studio",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/renderer": "4.0.529",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@remotion/bundler": "4.0.529",
+    "@types/react": "^19.3.0",
+    "typescript": "^5.9.3"
+  },
+  "private": true
+}

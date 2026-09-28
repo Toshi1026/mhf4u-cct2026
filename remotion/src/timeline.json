@@ -1,0 +1,834 @@
+{
+ "_generated_by": "scripts/build_timeline.py（手で直さないこと）",
+ "fps": 30,
+ "compositions": [
+  {
+   "width": 1920,
+   "height": 1080,
+   "durationInFrames": 900,
+   "clips": [
+    {
+     "cut": 1,
+     "src": "capcut/signage30/01_IMG_9631.mp4",
+     "file": "exports/capcut/signage30/01_IMG_9631.mp4",
+     "durationInFrames": 162,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9631.MOV",
+     "from": 0
+    },
+    {
+     "cut": 2,
+     "src": "capcut/signage30/02_IMG_9665.mp4",
+     "file": "exports/capcut/signage30/02_IMG_9665.mp4",
+     "durationInFrames": 99,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9665.MOV",
+     "from": 162
+    },
+    {
+     "cut": 3,
+     "src": "capcut/signage30/03_IMG_9674.mp4",
+     "file": "exports/capcut/signage30/03_IMG_9674.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9674.MOV",
+     "from": 261
+    },
+    {
+     "cut": 4,
+     "src": "capcut/signage30/04_placeholder_food_horizon.mp4",
+     "file": "exports/capcut/signage30/04_placeholder_food_horizon.mp4",
+     "durationInFrames": 180,
+     "placeholder": true,
+     "overridden": false,
+     "label": "",
+     "from": 351
+    },
+    {
+     "cut": 5,
+     "src": "capcut/signage30/05_placeholder_fork_lift.mp4",
+     "file": "exports/capcut/signage30/05_placeholder_fork_lift.mp4",
+     "durationInFrames": 90,
+     "placeholder": true,
+     "overridden": false,
+     "label": "",
+     "from": 531
+    },
+    {
+     "cut": 6,
+     "src": "capcut/signage30/06_IMG_9658.mp4",
+     "file": "exports/capcut/signage30/06_IMG_9658.mp4",
+     "durationInFrames": 279,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9658.MOV",
+     "from": 621
+    }
+   ],
+   "overlays": [
+    {
+     "label": "右下のマーク",
+     "src": "capcut/overlays/signage_corner_1920x1080.png",
+     "file": "exports/capcut/overlays/signage_corner_1920x1080.png",
+     "to": 621,
+     "keyframes": [
+      [
+       0,
+       0.0
+      ],
+      [
+       18,
+       1.0
+      ],
+      [
+       603,
+       1.0
+      ],
+      [
+       621,
+       0.0
+      ]
+     ],
+     "from": 0
+    },
+    {
+     "label": "END",
+     "src": "capcut/overlays/signage_end_1920x1080.png",
+     "file": "exports/capcut/overlays/signage_end_1920x1080.png",
+     "to": 876,
+     "keyframes": [
+      [
+       630,
+       0.0
+      ],
+      [
+       648,
+       1.0
+      ],
+      [
+       858,
+       1.0
+      ],
+      [
+       876,
+       0.0
+      ]
+     ],
+     "from": 630
+    }
+   ],
+   "audio": null,
+   "version": "signage_30s_v5（2026-09-23 確定版）",
+   "id": "Signage30",
+   "fps": 30,
+   "output": "MAZE_signage30.mp4",
+   "reference": "exports/capcut/preview_signage30.mp4",
+   "hasAudio": false,
+   "placeholders": [
+    4,
+    5
+   ]
+  },
+  {
+   "width": 1920,
+   "height": 1080,
+   "durationInFrames": 450,
+   "clips": [
+    {
+     "cut": 1,
+     "src": "capcut/signage15/01_IMG_9665.mp4",
+     "file": "exports/capcut/signage15/01_IMG_9665.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9665.MOV",
+     "from": 0
+    },
+    {
+     "cut": 2,
+     "src": "capcut/signage15/02_IMG_9674.mp4",
+     "file": "exports/capcut/signage15/02_IMG_9674.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9674.MOV",
+     "from": 90
+    },
+    {
+     "cut": 3,
+     "src": "capcut/signage15/03_placeholder_food_horizon.mp4",
+     "file": "exports/capcut/signage15/03_placeholder_food_horizon.mp4",
+     "durationInFrames": 90,
+     "placeholder": true,
+     "overridden": false,
+     "label": "",
+     "from": 180
+    },
+    {
+     "cut": 4,
+     "src": "capcut/signage15/04_IMG_9631.mp4",
+     "file": "exports/capcut/signage15/04_IMG_9631.mp4",
+     "durationInFrames": 180,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9631.MOV",
+     "from": 270
+    }
+   ],
+   "overlays": [
+    {
+     "label": "右下のマーク",
+     "src": "capcut/overlays/signage_corner_1920x1080.png",
+     "file": "exports/capcut/overlays/signage_corner_1920x1080.png",
+     "to": 270,
+     "keyframes": [
+      [
+       0,
+       0.0
+      ],
+      [
+       18,
+       1.0
+      ],
+      [
+       252,
+       1.0
+      ],
+      [
+       270,
+       0.0
+      ]
+     ],
+     "from": 0
+    },
+    {
+     "label": "END",
+     "src": "capcut/overlays/signage_end_1920x1080.png",
+     "file": "exports/capcut/overlays/signage_end_1920x1080.png",
+     "to": 426,
+     "keyframes": [
+      [
+       279,
+       0.0
+      ],
+      [
+       297,
+       1.0
+      ],
+      [
+       408,
+       1.0
+      ],
+      [
+       426,
+       0.0
+      ]
+     ],
+     "from": 279
+    }
+   ],
+   "audio": null,
+   "version": "サイネージ15秒 v6（2026-09-23 確定版）",
+   "id": "Signage15",
+   "fps": 30,
+   "output": "MAZE_signage15.mp4",
+   "reference": "exports/capcut/preview_signage15.mp4",
+   "hasAudio": false,
+   "placeholders": [
+    3
+   ]
+  },
+  {
+   "width": 1920,
+   "height": 1080,
+   "durationInFrames": 900,
+   "clips": [
+    {
+     "cut": 1,
+     "src": "capcut/signage30/01_IMG_9631.mp4",
+     "file": "exports/capcut/signage30/01_IMG_9631.mp4",
+     "durationInFrames": 162,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9631.MOV",
+     "from": 0
+    },
+    {
+     "cut": 2,
+     "src": "capcut/signage30/02_IMG_9665.mp4",
+     "file": "exports/capcut/signage30/02_IMG_9665.mp4",
+     "durationInFrames": 99,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9665.MOV",
+     "from": 162
+    },
+    {
+     "cut": 3,
+     "src": "capcut/signage30/03_IMG_9674.mp4",
+     "file": "exports/capcut/signage30/03_IMG_9674.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9674.MOV",
+     "from": 261
+    },
+    {
+     "cut": 4,
+     "src": "capcut/proposals/signage30_cake/04_IMG_9644+IMG_9633_diptych.mp4",
+     "file": "exports/capcut/proposals/signage30_cake/04_IMG_9644+IMG_9633_diptych.mp4",
+     "durationInFrames": 135,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9644.MOV",
+     "from": 351
+    },
+    {
+     "cut": 5,
+     "src": "capcut/proposals/signage30_cake/05_placeholder_cake_horizon_120fps.mp4",
+     "file": "exports/capcut/proposals/signage30_cake/05_placeholder_cake_horizon_120fps.mp4",
+     "durationInFrames": 135,
+     "placeholder": true,
+     "overridden": false,
+     "label": "PLACEHOLDER",
+     "from": 486
+    },
+    {
+     "cut": 6,
+     "src": "capcut/signage30/06_IMG_9658.mp4",
+     "file": "exports/capcut/signage30/06_IMG_9658.mp4",
+     "durationInFrames": 279,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9658.MOV",
+     "from": 621
+    }
+   ],
+   "overlays": [
+    {
+     "label": "右下のマーク",
+     "src": "capcut/overlays/signage_corner_1920x1080.png",
+     "file": "exports/capcut/overlays/signage_corner_1920x1080.png",
+     "to": 621,
+     "keyframes": [
+      [
+       0,
+       0.0
+      ],
+      [
+       18,
+       1.0
+      ],
+      [
+       603,
+       1.0
+      ],
+      [
+       621,
+       0.0
+      ]
+     ],
+     "from": 0
+    },
+    {
+     "label": "END",
+     "src": "capcut/overlays/signage_end_1920x1080.png",
+     "file": "exports/capcut/overlays/signage_end_1920x1080.png",
+     "to": 876,
+     "keyframes": [
+      [
+       630,
+       0.0
+      ],
+      [
+       648,
+       1.0
+      ],
+      [
+       858,
+       1.0
+      ],
+      [
+       876,
+       0.0
+      ]
+     ],
+     "from": 630
+    }
+   ],
+   "audio": null,
+   "version": "signage_30s_v6_cake",
+   "id": "Signage30Cake",
+   "fps": 30,
+   "output": "MAZE_signage30_cake.mp4",
+   "reference": "exports/capcut/proposals/preview_signage30_cake.mp4",
+   "hasAudio": false,
+   "placeholders": [
+    5
+   ]
+  },
+  {
+   "width": 1920,
+   "height": 1080,
+   "durationInFrames": 540,
+   "clips": [
+    {
+     "cut": 1,
+     "src": "capcut/signage15/01_IMG_9665.mp4",
+     "file": "exports/capcut/signage15/01_IMG_9665.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9665.MOV",
+     "from": 0
+    },
+    {
+     "cut": 2,
+     "src": "capcut/signage15/02_IMG_9674.mp4",
+     "file": "exports/capcut/signage15/02_IMG_9674.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9674.MOV",
+     "from": 90
+    },
+    {
+     "cut": 3,
+     "src": "capcut/proposals/signage15_cake/03_IMG_9644+IMG_9633_diptych.mp4",
+     "file": "exports/capcut/proposals/signage15_cake/03_IMG_9644+IMG_9633_diptych.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9644.MOV",
+     "from": 180
+    },
+    {
+     "cut": 4,
+     "src": "capcut/proposals/signage15_cake/04_placeholder_cake_horizon_120fps.mp4",
+     "file": "exports/capcut/proposals/signage15_cake/04_placeholder_cake_horizon_120fps.mp4",
+     "durationInFrames": 90,
+     "placeholder": true,
+     "overridden": false,
+     "label": "PLACEHOLDER",
+     "from": 270
+    },
+    {
+     "cut": 5,
+     "src": "capcut/signage15/04_IMG_9631.mp4",
+     "file": "exports/capcut/signage15/04_IMG_9631.mp4",
+     "durationInFrames": 180,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9631.MOV",
+     "from": 360
+    }
+   ],
+   "overlays": [
+    {
+     "label": "右下のマーク",
+     "src": "capcut/overlays/signage_corner_1920x1080.png",
+     "file": "exports/capcut/overlays/signage_corner_1920x1080.png",
+     "to": 360,
+     "keyframes": [
+      [
+       0,
+       0.0
+      ],
+      [
+       18,
+       1.0
+      ],
+      [
+       342,
+       1.0
+      ],
+      [
+       360,
+       0.0
+      ]
+     ],
+     "from": 0
+    },
+    {
+     "label": "END",
+     "src": "capcut/overlays/signage_end_1920x1080.png",
+     "file": "exports/capcut/overlays/signage_end_1920x1080.png",
+     "to": 516,
+     "keyframes": [
+      [
+       369,
+       0.0
+      ],
+      [
+       387,
+       1.0
+      ],
+      [
+       498,
+       1.0
+      ],
+      [
+       516,
+       0.0
+      ]
+     ],
+     "from": 369
+    }
+   ],
+   "audio": null,
+   "version": "signage15_v7_cake",
+   "id": "Signage18Cake",
+   "fps": 30,
+   "output": "MAZE_signage18_cake.mp4",
+   "reference": "exports/capcut/proposals/preview_signage15_cake.mp4",
+   "hasAudio": false,
+   "placeholders": [
+    4
+   ]
+  },
+  {
+   "width": 1080,
+   "height": 1920,
+   "durationInFrames": 900,
+   "clips": [
+    {
+     "cut": 1,
+     "src": "capcut/proposals/ig_v8_ig30/01_IMG_9672.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/01_IMG_9672.mp4",
+     "durationInFrames": 45,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9672.MOV",
+     "from": 0
+    },
+    {
+     "cut": 2,
+     "src": "capcut/proposals/ig_v8_ig30/02_IMG_9665.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/02_IMG_9665.mp4",
+     "durationInFrames": 75,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9665.MOV",
+     "from": 45
+    },
+    {
+     "cut": 3,
+     "src": "capcut/proposals/ig_v8_ig30/03_IMG_9673.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/03_IMG_9673.mp4",
+     "durationInFrames": 48,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9673.MOV",
+     "from": 120
+    },
+    {
+     "cut": 4,
+     "src": "capcut/proposals/ig_v8_ig30/04_IMG_9673.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/04_IMG_9673.mp4",
+     "durationInFrames": 69,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9673.MOV",
+     "from": 168
+    },
+    {
+     "cut": 5,
+     "src": "capcut/proposals/ig_v8_ig30/05_IMG_9649.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/05_IMG_9649.mp4",
+     "durationInFrames": 69,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9649.MOV",
+     "from": 237
+    },
+    {
+     "cut": 6,
+     "src": "capcut/proposals/ig_v8_ig30/06_IMG_9662.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/06_IMG_9662.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9662.MOV",
+     "from": 306
+    },
+    {
+     "cut": 7,
+     "src": "capcut/proposals/ig_v8_ig30/07_IMG_9643.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/07_IMG_9643.mp4",
+     "durationInFrames": 102,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9643.MOV",
+     "from": 396
+    },
+    {
+     "cut": 8,
+     "src": "capcut/proposals/ig_v8_ig30/08_PLACEHOLDER_E7.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/08_PLACEHOLDER_E7.mp4",
+     "durationInFrames": 30,
+     "placeholder": true,
+     "overridden": false,
+     "label": "PLACEHOLDER_E7",
+     "from": 498
+    },
+    {
+     "cut": 9,
+     "src": "capcut/proposals/ig_v8_ig30/09_PLACEHOLDER_E6.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/09_PLACEHOLDER_E6.mp4",
+     "durationInFrames": 36,
+     "placeholder": true,
+     "overridden": false,
+     "label": "PLACEHOLDER_E6",
+     "from": 528
+    },
+    {
+     "cut": 10,
+     "src": "capcut/proposals/ig_v8_ig30/10_IMG_9636.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/10_IMG_9636.mp4",
+     "durationInFrames": 105,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9636.MOV",
+     "from": 564
+    },
+    {
+     "cut": 11,
+     "src": "capcut/proposals/ig_v8_ig30/11_IMG_9668.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/11_IMG_9668.mp4",
+     "durationInFrames": 72,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9668.MOV",
+     "from": 669
+    },
+    {
+     "cut": 12,
+     "src": "capcut/proposals/ig_v8_ig30/12_IMG_9661.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig30/12_IMG_9661.mp4",
+     "durationInFrames": 159,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9661.MOV",
+     "from": 741
+    }
+   ],
+   "overlays": [
+    {
+     "label": "ig30_c10_copy",
+     "src": "capcut/overlays/ig30_c10_copy_1080x1920.png",
+     "file": "exports/capcut/overlays/ig30_c10_copy_1080x1920.png",
+     "to": 657,
+     "keyframes": [
+      [
+       576,
+       0.0
+      ],
+      [
+       588,
+       1.0
+      ],
+      [
+       645,
+       1.0
+      ],
+      [
+       657,
+       0.0
+      ]
+     ],
+     "from": 576
+    },
+    {
+     "label": "ig30_end_1_place",
+     "src": "capcut/overlays/ig30_end_1_place_1080x1920.png",
+     "file": "exports/capcut/overlays/ig30_end_1_place_1080x1920.png",
+     "to": 900,
+     "keyframes": [
+      [
+       759,
+       0.0
+      ],
+      [
+       777,
+       1.0
+      ]
+     ],
+     "from": 759
+    },
+    {
+     "label": "ig30_end_2_logo_handle",
+     "src": "capcut/overlays/ig30_end_2_logo_handle_1080x1920.png",
+     "file": "exports/capcut/overlays/ig30_end_2_logo_handle_1080x1920.png",
+     "to": 900,
+     "keyframes": [
+      [
+       777,
+       0.0
+      ],
+      [
+       792,
+       1.0
+      ]
+     ],
+     "from": 777
+    }
+   ],
+   "audio": {
+    "src": "capcut/proposals/ig_ambience_ig30_v8.wav",
+    "file": "exports/capcut/proposals/ig_ambience_ig30_v8.wav",
+    "volume": 1.0
+   },
+   "version": "IG30_v8提案",
+   "id": "IG30",
+   "fps": 30,
+   "output": "MAZE_ig30.mp4",
+   "reference": "exports/capcut/proposals/ig_preview_ig30.mp4",
+   "hasAudio": true,
+   "placeholders": [
+    8,
+    9
+   ]
+  },
+  {
+   "width": 1080,
+   "height": 1920,
+   "durationInFrames": 450,
+   "clips": [
+    {
+     "cut": 1,
+     "src": "capcut/proposals/ig_v8_ig15/01_IMG_9670.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/01_IMG_9670.mp4",
+     "durationInFrames": 45,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9670.MOV",
+     "from": 0
+    },
+    {
+     "cut": 2,
+     "src": "capcut/proposals/ig_v8_ig15/02_IMG_9650.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/02_IMG_9650.mp4",
+     "durationInFrames": 45,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9650.MOV",
+     "from": 45
+    },
+    {
+     "cut": 3,
+     "src": "capcut/proposals/ig_v8_ig15/03_IMG_9660.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/03_IMG_9660.mp4",
+     "durationInFrames": 36,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9660.MOV",
+     "from": 90
+    },
+    {
+     "cut": 4,
+     "src": "capcut/proposals/ig_v8_ig15/04_IMG_9659.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/04_IMG_9659.mp4",
+     "durationInFrames": 39,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9659.MOV",
+     "from": 126
+    },
+    {
+     "cut": 5,
+     "src": "capcut/proposals/ig_v8_ig15/05_PLACEHOLDER_E7.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/05_PLACEHOLDER_E7.mp4",
+     "durationInFrames": 30,
+     "placeholder": true,
+     "overridden": false,
+     "label": "PLACEHOLDER",
+     "from": 165
+    },
+    {
+     "cut": 6,
+     "src": "capcut/proposals/ig_v8_ig15/06_PLACEHOLDER_E5.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/06_PLACEHOLDER_E5.mp4",
+     "durationInFrames": 60,
+     "placeholder": true,
+     "overridden": false,
+     "label": "PLACEHOLDER",
+     "from": 195
+    },
+    {
+     "cut": 7,
+     "src": "capcut/proposals/ig_v8_ig15/07_IMG_9644.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/07_IMG_9644.mp4",
+     "durationInFrames": 105,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9644.MOV",
+     "from": 255
+    },
+    {
+     "cut": 8,
+     "src": "capcut/proposals/ig_v8_ig15/08_IMG_9633.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/08_IMG_9633.mp4",
+     "durationInFrames": 90,
+     "placeholder": false,
+     "overridden": false,
+     "label": "IMG_9633.MOV",
+     "from": 360
+    }
+   ],
+   "overlays": [
+    {
+     "label": "ig15_end_1_place",
+     "src": "capcut/overlays/ig15_end_1_place_1080x1920.png",
+     "file": "exports/capcut/overlays/ig15_end_1_place_1080x1920.png",
+     "to": 450,
+     "keyframes": [
+      [
+       366,
+       0.0
+      ],
+      [
+       384,
+       1.0
+      ]
+     ],
+     "from": 366
+    },
+    {
+     "label": "ig15_end_2_logo_handle",
+     "src": "capcut/overlays/ig15_end_2_logo_handle_1080x1920.png",
+     "file": "exports/capcut/overlays/ig15_end_2_logo_handle_1080x1920.png",
+     "to": 450,
+     "keyframes": [
+      [
+       384,
+       0.0
+      ],
+      [
+       399,
+       1.0
+      ]
+     ],
+     "from": 384
+    }
+   ],
+   "audio": {
+    "src": "capcut/proposals/ig_ambience_ig15_v8.wav",
+    "file": "exports/capcut/proposals/ig_ambience_ig15_v8.wav",
+    "volume": 1.0
+   },
+   "version": "IG15_v8提案",
+   "id": "IG15",
+   "fps": 30,
+   "output": "MAZE_ig15.mp4",
+   "reference": "exports/capcut/proposals/ig_preview_ig15.mp4",
+   "hasAudio": true,
+   "placeholders": [
+    5,
+    6
+   ]
+  }
+ ]
+}

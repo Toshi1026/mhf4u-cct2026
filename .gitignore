@@ -14,3 +14,8 @@ edl/mockups_work/
 __pycache__/
 edl/mockups/*.png
 edl/mockups/*.mp4
+
+# Remotion（依存・素材へのリンク・試し書き）
+remotion/node_modules/
+remotion/public/
+remotion/out/
