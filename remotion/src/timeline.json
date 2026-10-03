@@ -156,8 +156,8 @@
     },
     {
      "cut": 3,
-     "src": "capcut/proposals/signage15_cake/03_IMG_9644+IMG_9633_diptych.mp4",
-     "file": "exports/capcut/proposals/signage15_cake/03_IMG_9644+IMG_9633_diptych.mp4",
+     "src": "capcut/proposals/signage15_interim/03_IMG_9644+IMG_9633_diptych.mp4",
+     "file": "exports/capcut/proposals/signage15_interim/03_IMG_9644+IMG_9633_diptych.mp4",
      "durationInFrames": 90,
      "placeholder": false,
      "overridden": true,
@@ -704,11 +704,11 @@
     },
     {
      "cut": 2,
-     "src": "capcut/proposals/ig_qc_fix/ig15/02_IMG_9650.mp4",
-     "file": "exports/capcut/proposals/ig_qc_fix/ig15/02_IMG_9650.mp4",
+     "src": "capcut/proposals/ig_v8_ig15/02_IMG_9650.mp4",
+     "file": "exports/capcut/proposals/ig_v8_ig15/02_IMG_9650.mp4",
      "durationInFrames": 45,
      "placeholder": false,
-     "overridden": true,
+     "overridden": false,
      "label": "IMG_9650.MOV",
      "from": 45
     },

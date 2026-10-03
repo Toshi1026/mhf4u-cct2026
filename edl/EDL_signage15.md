@@ -74,4 +74,4 @@
 
 ## 2026-10 最終QCのあとの暫定放映版
 
-カット3（6.00〜9.00秒）の黒の仮スレートを、ケーキ版で承認済みの「縦パスタの2画面」（`exports/capcut/proposals/signage15_cake/03_IMG_9644+IMG_9633_diptych.mp4`、90コマ）で埋めた暫定版を放映用にします。カットの秒・右下のマーク・ENDは v6 のまま。差し替えは `remotion/clip_overrides.json`。書き出しは H.264 High・レベル4.1。
+カット3（6.00〜9.00秒）の黒の仮スレートを、ケーキ版で承認済みの「縦パスタの2画面」（ケーキ版のカット3と同じ区間、90コマ。`tools/render_signage_interim.py` → `exports/capcut/proposals/signage15_interim/`）で埋めた暫定版を放映用にします。右下の減光は、マークのフェードアウト（252〜269コマ）に合わせて弱めます。カットの秒・右下のマーク・ENDは v6 のまま。差し替えは `remotion/clip_overrides.json`。書き出しは H.264 High・レベル4.1。
