@@ -14,8 +14,8 @@ Remotion がするのは、組み立てだけです。
 
 | Composition | 書き出しファイル | サイズ | 長さ | 音声 | 元になるデータ |
 |---|---|---|---|---|---|
-| `Signage30` | `MAZE_signage30.mp4` | 1920×1080 | 30.00秒（900コマ） | なし | `exports/capcut/signage_manifest.json`（承認済み・放映中） |
-| `Signage15` | `MAZE_signage15.mp4` | 1920×1080 | 15.00秒（450コマ） | なし | 同上 |
+| `Signage30` | `MAZE_signage30.mp4` | 1920×1080 | 30.00秒（900コマ） | なし | `exports/capcut/signage_manifest.json`（v5）。料理の枠（カット4・5）は暫定で「縦パスタの2画面」 |
+| `Signage15` | `MAZE_signage15.mp4` | 1920×1080 | 15.00秒（450コマ） | なし | 同上（v6）。料理の枠（カット3）は暫定で「縦パスタの2画面」 |
 | `Signage30Cake` | `MAZE_signage30_cake.mp4` | 1920×1080 | 30.00秒（900コマ） | なし | `edl_result.json` の `edls.signage_cake`、`proposals/render_log_proposal.json`、`signage_spec.py` の `timing()` |
 | `Signage18Cake` | `MAZE_signage18_cake.mp4` | 1920×1080 | 18.00秒（540コマ） | なし | `edls.signage15_cake`（同上） |
 | `IG30` | `MAZE_ig30.mp4` | 1080×1920 | 30.00秒（900コマ） | AAC 48kHz | `edls.ig30`（v8）、`proposals/ig_v8_ig30/`、`ig_ambience_ig30_v8.wav`、PNGの秒は `ig_manifest.json` |
@@ -23,6 +23,19 @@ Remotion がするのは、組み立てだけです。
 
 ケーキ版の2本と IG の2本には、撮影待ちのカットがあります。そこは黒の仮スレートのままです（`timeline.json` の `placeholders`）。
 **仮スレートが残っている間は、公開用に使わないでください**（EDL の条件）。
+
+**2026-10 最終QCのあとの修正（`clip_overrides.json` で差し替え中）**
+- サイネージ30秒・15秒：料理の撮影待ちの枠（黒の仮スレート）を、ケーキ版で承認済みの「縦パスタの2画面」で埋めた**暫定の放映版**です。
+  - 30秒版：カット4＋5（270コマ）を1本の連続した2画面で埋めます（`tools/render_signage_interim.py`、IMG_9644 1.0→5.5秒・IMG_9633 4.5→9.0秒、0.5倍）
+  - 15秒版：ケーキ版のカット3（`proposals/signage15_cake/03_…`）をそのまま使います
+  - 料理の2カットを撮ったら、`clip_overrides.json` の該当行を新しいクリップに書き換えます
+- IG：QCの指摘を直したクリップ（`exports/capcut/proposals/ig_v8_scripts/ig_qc_fixes.py` → `proposals/ig_qc_fix/`）
+  - IG30-4：使う区間を0.7秒早め、非常口の誘導灯が入る前に終える
+  - IG30-5：振り戻しを切り出し枠の動きで打ち消し、右へ流れて止まる動きにする。傾き1°を補正し、寄ってレジ台を外す
+  - IG30-7：窓の横桟より下（看板・スクーター・人物）に、下のガラスが曇ったような浅いぼかし
+  - IG15-2：1.2倍に寄って枠を上げ、レジ台と販促物を外す
+  - IG15-3：わずかに寄って、下端の消波ブロックと手すりを外す
+  - IG15-8（END）：上下の揺れを測って枠で追い、文字が出る間の水平線の上下を止める
 
 ---
 
@@ -45,7 +58,8 @@ python3 scripts/check_fades.py     # PNGのフェードが見本と同じコマ�
 - 試しに一部だけ書き出す場合：`node scripts/render.mjs IG30 --out out --frames 560-680`（出力先は `remotion/out/`）
 - 画面で確かめる場合：`npx remotion studio`（ブラウザでタイムラインを見られる）
 - 出力：`exports/final/MAZE_*.mp4`。書き出しの時間とサイズは `exports/final/render_log.json` に残ります
-- 仕様：H.264 High、CRF 17、yuv420p、BT.709（タグ付き・limited）、30fps
+- 仕様：H.264 High・**レベル4.1**、CRF 17、yuv420p、BT.709（タグ付き・limited）、30fps
+  - レベルは、屋外サイネージの再生機の多くが「High@4.1/4.2まで」としているため 4.1 に固定しています
   - サイネージの4本：音声トラックなし（`muted`）
   - IG の2本：AAC 48kHz 256kbps
 - **`npx remotion render` で直接 IG を書き出さないでください。**

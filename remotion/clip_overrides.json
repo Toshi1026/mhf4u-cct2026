@@ -1,0 +1,20 @@
+{
+ "_説明": "2026-10 最終QCの修正。サイネージは料理の撮影待ちの枠を承認済みの「縦パスタの2画面」で埋めた暫定版、IGは QC の指摘を直したクリップ（exports/capcut/proposals/ig_v8_scripts/ig_qc_fixes.py）",
+ "Signage30": {
+  "4": "exports/capcut/proposals/signage30_interim/04_IMG_9644+IMG_9633_diptych_a.mp4",
+  "5": "exports/capcut/proposals/signage30_interim/05_IMG_9644+IMG_9633_diptych_b.mp4"
+ },
+ "Signage15": {
+  "3": "exports/capcut/proposals/signage15_cake/03_IMG_9644+IMG_9633_diptych.mp4"
+ },
+ "IG30": {
+  "4": "exports/capcut/proposals/ig_qc_fix/ig30/04_IMG_9673.mp4",
+  "5": "exports/capcut/proposals/ig_qc_fix/ig30/05_IMG_9649.mp4",
+  "7": "exports/capcut/proposals/ig_qc_fix/ig30/07_IMG_9643.mp4"
+ },
+ "IG15": {
+  "2": "exports/capcut/proposals/ig_qc_fix/ig15/02_IMG_9650.mp4",
+  "3": "exports/capcut/proposals/ig_qc_fix/ig15/03_IMG_9660.mp4",
+  "8": "exports/capcut/proposals/ig_qc_fix/ig15/08_IMG_9633.mp4"
+ }
+}
