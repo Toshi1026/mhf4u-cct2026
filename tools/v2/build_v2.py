@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, '/home/user/maze/exports/capcut/_scripts')
 import common as C  # noqa: E402
 import relight as RL  # noqa: E402
+import mapzoom as MZ  # noqa: E402
 
 OUT = os.path.join(C.ROOT, 'exports', 'v2')
 CAP = os.path.join(C.ROOT, 'exports', 'capcut')
@@ -132,6 +133,64 @@ def shot_road(n, W, H, fmt):
     return photo_move(54, n, W, H, path, par=par, grade=dict(con=0.05, sat=1.04))
 
 
+def shot_aerial(n, W, H, fmt):
+    """0：冒頭。LP の空撮（仁淀川河口大橋と河口・太平洋）を奥行きでゆっくり押し込む。"""
+    if fmt == 'ig':
+        path = lambda u: (C.lerp(0.40, 0.44, u), 0.50, C.lerp(0.42, 0.30, C.ease(u, 'out')), 1)
+    else:
+        path = lambda u: (0.50, 0.52, C.lerp(0.98, 0.78, C.ease(u, 'out')), 1)
+    return photo_move('lp:about_s02.jpg', n, W, H, path, par=0.5, grade=dict(con=0.04, sat=1.03), long_side=1500)
+
+
+MAP_LABELS = [((133.30, 33.62), '高知県', 0.10, 0.40, 1.25),
+              ((133.43, 33.50), '土佐市', 0.42, 0.66, 1.0),
+              (MZ.KATSURA, '桂浜', 0.50, 0.84, 0.9),
+              ((133.466, 33.505), '仁淀川', 0.60, 0.86, 0.9)]
+
+
+def shot_map(n, W, H, fmt):
+    """1：日本 → 高知県 → 土佐市 → 桂浜からの道筋 → 南風の真上。地名は地図の上の位置に貼りつく。"""
+    small = H * (0.024 if W < H else 0.036)
+    credit = C.text_layer(W, H, [('地図：国土地理院（シームレス空中写真）・Natural Earth　経路：© OpenStreetMap contributors',
+                                  W * 0.97, H * 0.975, H * (0.009 if W < H else 0.016), dict(anchor='rs', alpha=0.75, track=0.02))])
+    for i, (f, z, cx, cy) in enumerate(MZ.frames(n, W, H, fmt)):
+        u = i / (n - 1)
+        items = []
+        for ll, name, a0, a1, sz in MAP_LABELS:
+            a = min(C.ease(np.clip((u - a0) / 0.06, 0, 1), 'smooth'), C.ease(np.clip((a1 - u) / 0.06, 0, 1), 'smooth'))
+            if a <= 0:
+                continue
+            x, y = MZ.to_screen(ll, z, cx, cy, W, H)
+            items.append((name, x, y, small * sz, dict(anchor='mm', alpha=float(a), track=0.2)))
+        a = float(C.ease(np.clip((u - 0.88) / 0.06, 0, 1), 'smooth'))
+        if a > 0:
+            x, y = MZ.to_screen(MZ.MAZE, z, cx, cy, W, H)
+            cv2.circle(f, (int(x), int(y)), int(small * 0.45), (1, 1, 1), -1, cv2.LINE_AA)
+            cv2.circle(f, (int(x), int(y)), int(small * (0.9 + 0.6 * (1 - a))), (1, 1, 1), max(2, int(small * 0.08)), cv2.LINE_AA)
+            items.append(('Seaside MAZE ｜ 南風', x, y - small * 1.4, small * 1.05, dict(anchor='mm', alpha=a, track=0.12)))
+        if items:
+            f = C.put_text(f, C.text_layer(W, H, items))
+        f = C.put_text(f, credit, 1.0)
+        yield f
+
+
+def shot_driveby(n, W, H, fmt):
+    """2：車窓。仁淀川を渡ると左手に南風。建物の写真（44）を横に流し、手前ほど速く動く視差と、
+    コマの間を3枚重ねた本物のモーションブラーで、車の窓から見ているように。"""
+    img = C.grade(C.load(44), con=0.05, sat=1.04)
+    dep = C.depth(44, C.load(44))
+    vw = 0.36 if fmt == 'ig' else 0.55
+    for i in range(n):
+        acc = 0
+        for sub in (-0.33, 0.0, 0.33):
+            u = (i + sub) / (n - 1)
+            e = float(np.clip(u, 0, 1))
+            cx = C.lerp(0.20, 0.80, e) if fmt == 'ig' else C.lerp(0.28, 0.72, e)
+            f, _ = C.view(img, W, H, cx, 0.50, vw, dep, 0.0, lat=C.lerp(-0.05, 0.05, e))
+            acc = acc + f
+        yield acc / 3
+
+
 def shot_relight(n, W, H, fmt):
     """3：昼→夜。押し込みながら暮れて、明かりが左から灯り、最後に看板が光る。終わりは入口の光へ。"""
     P = RL.prepare()
@@ -202,9 +261,9 @@ def shot_1f(n, W, H, fmt, cuts=None):
 
 def shot_2f(n, W, H, fmt):
     """5：階段（OCEANVIEW）を上がる → 2F のカウンターと海 → 窓の外の海（動画）。"""
-    a = int(n * 0.30)
-    b = int(n * 0.25)
-    c = n - a - b
+    c = min(n - int(n * 0.55), 69 if fmt == 'ig' else 90)
+    a = int((n - c) * 0.55)
+    b = n - c - a
     fr = []
     # 階段：下から見上げて、上がっていく（奥行きで視差）
     path = (lambda u: (0.55, C.lerp(0.62, 0.40, C.ease(u, 'inout')), C.lerp(0.62, 0.48, u), 1)) if fmt == 'ig' else \
@@ -283,16 +342,17 @@ def shot_end(n, W, H, fmt):
 # 4本の構成（コマ数）と文字
 # ---------------------------------------------------------------------------
 PLANS = {
-    'ig30': dict(W=1080, H=1920, fmt='ig', shots=[('place', 75), ('road', 75), ('relight', 150), ('1f', 120), ('2f', 150),
-                                                   ('floors', 105), ('deck', 60), ('end', 165)]),
-    'ig15': dict(W=1080, H=1920, fmt='ig', shots=[('place', 45), ('relight', 90), ('1f', 75), ('2f', 75), ('floors', 75),
-                                                   ('end', 90)]),
-    'sg30': dict(W=1920, H=1080, fmt='sg', shots=[('place', 75), ('road', 75), ('relight', 150), ('1f', 120), ('2f', 150),
-                                                   ('floors', 105), ('deck', 60), ('end', 165)]),
-    'sg15': dict(W=1920, H=1080, fmt='sg', shots=[('place', 45), ('relight', 90), ('1f', 75), ('2f', 75), ('floors', 75),
-                                                   ('end', 90)]),
+    # 2026-10-04 改訂：テンポをゆるめて 40秒／20秒。冒頭に LP の空撮、地図（日本→南風）、車窓を追加
+    'ig30': dict(W=1080, H=1920, fmt='ig', shots=[('aerial', 105), ('map', 210), ('driveby', 90), ('relight', 165), ('1f', 150),
+                                                   ('2f', 165), ('floors', 120), ('deck', 75), ('end', 120)]),
+    'ig15': dict(W=1080, H=1920, fmt='ig', shots=[('aerial', 45), ('map', 135), ('driveby', 45), ('relight', 90), ('1f', 75),
+                                                   ('2f', 60), ('floors', 60), ('end', 90)]),
+    'sg30': dict(W=1920, H=1080, fmt='sg', shots=[('aerial', 105), ('map', 210), ('driveby', 90), ('relight', 165), ('1f', 150),
+                                                   ('2f', 165), ('floors', 120), ('deck', 75), ('end', 120)]),
+    'sg15': dict(W=1920, H=1080, fmt='sg', shots=[('aerial', 45), ('map', 135), ('driveby', 45), ('relight', 90), ('1f', 75),
+                                                   ('2f', 60), ('floors', 60), ('end', 90)]),
 }
-SHOTS = dict(place=shot_place, road=shot_road, relight=shot_relight, **{'1f': shot_1f}, **{'2f': shot_2f},
+SHOTS = dict(aerial=shot_aerial, map=shot_map, driveby=shot_driveby, place=shot_place, road=shot_road, relight=shot_relight, **{'1f': shot_1f}, **{'2f': shot_2f},
              floors=shot_floors, deck=shot_deck, end=shot_end)
 
 
@@ -305,11 +365,14 @@ def texts(plan):
         st[name] = (f, f + n)
         f += n
     T = []
-    s, e = st['place']
+    s, e = st['aerial']
     T.append(Txt(s + 8, e - 2, lambda W, H: [
         ('太平洋と仁淀川の交差点', W / 2, H * (0.30 if ig else 0.47), H * (0.026 if ig else 0.044), dict(anchor='mm', track=0.16)),
         ('高知県土佐市 新居', W / 2, H * (0.30 if ig else 0.47) + H * (0.034 if ig else 0.06), H * (0.015 if ig else 0.026),
          dict(anchor='mm', track=0.3, alpha=0.9))]))
+    s, e = st['driveby']
+    T.append(Txt(s + 6, e - 2, lambda W, H: [
+        ('仁淀川を渡ると、左手に。', W / 2, H * (0.30 if ig else 0.20), H * (0.024 if ig else 0.042), dict(anchor='mm', track=0.16))], fade=10))
     s, e = st['relight']
     T.append(Txt(s + int((e - s) * 0.45), e - int((e - s) * 0.12), lambda W, H: [
         ('Seaside MAZE', W / 2, H * (0.20 if ig else 0.16), H * (0.034 if ig else 0.058), dict(anchor='mm', track=0.12)),
@@ -318,7 +381,7 @@ def texts(plan):
     s, e = st['1f']
     T.append(Txt(s + 4, e - 2, lambda W, H: floor_label(W, H, '1F', 'ローソン ＋ 産直マーケット', '地元の野菜と、土佐市の特産品'), fade=8))
     s, e = st['2f']
-    T.append(Txt(s + 6, e - 2, lambda W, H: floor_label(W, H, '2F', 'オーシャンビューカフェ', 'MAZE WIND RETREAT'), fade=8))
+    T.append(Txt(s + 6, e - 2, lambda W, H: floor_label(W, H, '2F', 'オーシャンビューカフェ', 'MAZE WIND RETREAT ｜ @mazewind2026' if ig else 'MAZE WIND RETREAT'), fade=8))
     if 'deck' in st:
         s, e = st['deck']
         T.append(Txt(s + 4, e, lambda W, H: floor_label(W, H, '3F', '屋上・展望スペース', '津波避難タワーは、どなたでも上まで'), fade=8))
@@ -337,7 +400,7 @@ def render(key, stills=None):
     W, H = plan['W'], plan['H']
     T, st = texts(plan)
     total = sum(n for _, n in plan['shots'])
-    path = os.path.join(OUT, 'MAZE_v2_%s.mp4' % key)
+    path = os.path.join(OUT, 'MAZE_v2_%s_%ds.mp4' % (plan['fmt'], round(total / C.FPS)))
     enc = None if stills else C.Encoder(path, W, H, total)
     f = 0
     for name, n in plan['shots']:

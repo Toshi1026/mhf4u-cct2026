@@ -33,16 +33,16 @@ def photo_path(key):
 def load(key, long_side=3200):
     """sRGB の float32（0..1）。長辺 long_side に縮小してキャッシュ。"""
     tag = str(key).replace(':', '_').replace('/', '_')
-    cp = os.path.join(CACHE, 'img_%s_%d.npy' % (tag, long_side))
+    cp = os.path.join(CACHE, 'img_%s_%d.u8.npy' % (tag, long_side))   # 8bit で保存（float の1/4）
     if os.path.exists(cp):
-        return np.load(cp)
+        return np.load(cp).astype(np.float32) / 255.0
     im = ImageOps.exif_transpose(Image.open(photo_path(key))).convert('RGB')
     s = long_side / max(im.size)
     if s < 1:
         im = im.resize((round(im.width * s), round(im.height * s)), Image.LANCZOS)
-    a = np.asarray(im).astype(np.float32) / 255.0
+    a = np.asarray(im)
     np.save(cp, a)
-    return a
+    return a.astype(np.float32) / 255.0
 
 
 _DA = None
@@ -56,7 +56,7 @@ def depth(key, img=None):
         img = load(key)
     cp = os.path.join(CACHE, 'depth_%s_%dx%d.npy' % (tag, img.shape[1], img.shape[0]))
     if os.path.exists(cp):
-        return np.load(cp)
+        return np.load(cp).astype(np.float32)
     import onnxruntime as ort
     if _DA is None:
         _DA = ort.InferenceSession(os.path.join(ROOT, 'tools', 'models', 'depth_anything_v2_small.onnx'))
@@ -69,8 +69,9 @@ def depth(key, img=None):
     d = cv2.resize(d, (w, h), interpolation=cv2.INTER_CUBIC)
     lo, hi = np.percentile(d, 1), np.percentile(d, 99)
     d = np.clip((d - lo) / (hi - lo + 1e-6), 0, 1).astype(np.float32)
-    d = cv2.GaussianBlur(d, (0, 0), max(1.0, w / 800))
+    d = cv2.GaussianBlur(d, (0, 0), max(1.0, w / 800)).astype(np.float16)
     np.save(cp, d)
+    d = d.astype(np.float32)
     return d
 
 
@@ -89,12 +90,12 @@ def lerp(a, b, t):
     return np.asarray(a, float) * (1 - t) + np.asarray(b, float) * t
 
 
-def view(img, W, H, cx, cy, vw, dep=None, par=0.0, d0=0.5, rot=0.0):
+def view(img, W, H, cx, cy, vw, dep=None, par=0.0, d0=0.5, rot=0.0, lat=0.0):
     """仮想カメラ。画像の (cx,cy)（画像の比 0..1）を中心に、幅 vw（画像の幅の比）を W×H に写す。
     par：奥行きの視差（ドリー）。手前（dep大）ほど大きく写る。戻り値：(画, 出力→画像の写像 2x3)。"""
     h, w = img.shape[:2]
     # 画像の外（鏡に映ったような縁）が出ないよう、画角と中心を画像の内側に収める。視差の分だけ余白を足す
-    m = 1.0 + (0.5 * abs(par) if dep is not None and par else 0.0) + 0.01
+    m = 1.0 + (0.5 * abs(par) + 1.2 * abs(lat) if dep is not None and (par or lat) else 0.0) + 0.01
     vh = vw * w / W * H / h                            # 縦の画角（画像の高さの比）
     if vh * m > 1.0:
         vw = vw / (vh * m)
@@ -108,7 +109,7 @@ def view(img, W, H, cx, cy, vw, dep=None, par=0.0, d0=0.5, rot=0.0):
     c, s = np.cos(np.radians(rot)), np.sin(np.radians(rot))
     A = np.array([[k * c, -k * s, cx * w - k * (c * W / 2 - s * H / 2)],
                   [k * s, k * c, cy * h - k * (s * W / 2 + c * H / 2)]], np.float32)
-    if dep is None or par == 0:
+    if dep is None or (par == 0 and lat == 0):
         out = cv2.warpAffine(img, A, (W, H), flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP, borderMode=cv2.BORDER_REFLECT)
         return out, A
     ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
@@ -117,6 +118,7 @@ def view(img, W, H, cx, cy, vw, dep=None, par=0.0, d0=0.5, rot=0.0):
     dd = cv2.remap(dep, mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
     f = 1.0 / (1.0 + par * (dd - d0))
     pcx, pcy = cx * w, cy * h
+    mx = mx - lat * k * W * (dd - d0)                  # 横の視差（手前ほど大きくずれる＝車窓）
     mx = (pcx + (mx - pcx) * f).astype(np.float32)
     my = (pcy + (my - pcy) * f).astype(np.float32)
     out = cv2.remap(img, mx, my, cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REFLECT)
