@@ -39,7 +39,7 @@ HANDLE = '@mazewind2026'
 TEXT = dict(
     weight='Regular',
     size=0.0200,                                  # 1em＝2.0%h（1920pで38px。int(round(38.4))=38）
-    opacity=0.95,                                 # 白95%（影も含めて）
+    opacity=1.00,                                 # 白100%（影も含めて）。2026-10 最終QC：IG15の@mazewind2026が4.0:1をわずかに下回るコマがあったため95%→100%
     track_ja=0.20,                                # 「高知県土佐市」の字間 0.20em
     track_en=0.06,                                # 「@mazewind2026」の字間 0.06em
     row_pitch=0.034,                              # 2行の中心の間隔 3.4%h（65px）

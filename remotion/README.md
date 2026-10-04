@@ -14,8 +14,8 @@ Remotion がするのは、組み立てだけです。
 
 | Composition | 書き出しファイル | サイズ | 長さ | 音声 | 元になるデータ |
 |---|---|---|---|---|---|
-| `Signage30` | `MAZE_signage30.mp4` | 1920×1080 | 30.00秒（900コマ） | なし | `exports/capcut/signage_manifest.json`（承認済み・放映中） |
-| `Signage15` | `MAZE_signage15.mp4` | 1920×1080 | 15.00秒（450コマ） | なし | 同上 |
+| `Signage30` | `MAZE_signage30.mp4` | 1920×1080 | 30.00秒（900コマ） | なし | `exports/capcut/signage_manifest.json`（v5）。料理の枠（カット4・5）は暫定で「縦パスタの2画面」 |
+| `Signage15` | `MAZE_signage15.mp4` | 1920×1080 | 15.00秒（450コマ） | なし | 同上（v6）。料理の枠（カット3）は暫定で「縦パスタの2画面」 |
 | `Signage30Cake` | `MAZE_signage30_cake.mp4` | 1920×1080 | 30.00秒（900コマ） | なし | `edl_result.json` の `edls.signage_cake`、`proposals/render_log_proposal.json`、`signage_spec.py` の `timing()` |
 | `Signage18Cake` | `MAZE_signage18_cake.mp4` | 1920×1080 | 18.00秒（540コマ） | なし | `edls.signage15_cake`（同上） |
 | `IG30` | `MAZE_ig30.mp4` | 1080×1920 | 30.00秒（900コマ） | AAC 48kHz | `edls.ig30`（v8）、`proposals/ig_v8_ig30/`、`ig_ambience_ig30_v8.wav`、PNGの秒は `ig_manifest.json` |
@@ -23,6 +23,21 @@ Remotion がするのは、組み立てだけです。
 
 ケーキ版の2本と IG の2本には、撮影待ちのカットがあります。そこは黒の仮スレートのままです（`timeline.json` の `placeholders`）。
 **仮スレートが残っている間は、公開用に使わないでください**（EDL の条件）。
+
+**2026-10 最終QCのあとの修正（`clip_overrides.json` で差し替え中）**
+- サイネージ30秒・15秒：料理の撮影待ちの枠（黒の仮スレート）を、ケーキ版で承認済みの「縦パスタの2画面」で埋めた**暫定の放映版**です。
+  - 30秒版：カット4＋5（270コマ）を1本の連続した2画面で埋めます（`tools/render_signage_interim.py`、IMG_9644 1.0→5.5秒・IMG_9633 4.5→9.0秒、0.5倍）
+  - 15秒版：ケーキ版のカット3と同じ区間の2画面（`proposals/signage15_interim/03_…`）
+  - 右下の減光は、マークが消えるコマではマークの不透明度に合わせて弱めます（マークが消えたあとに海の右下へ暗いしみが残らないように）
+  - 料理の2カットを撮ったら、`clip_overrides.json` の該当行を新しいクリップに書き換えます
+- IG：QCの指摘を直したクリップ（`exports/capcut/proposals/ig_v8_scripts/ig_qc_fixes.py` → `proposals/ig_qc_fix/`）
+  - IG30-4：ピントが合いきる4.93秒から、誘導灯が入る前の6.60秒までを0.726倍で元の尺に伸ばす
+  - IG30-5：振り戻しを切り出し枠の動きで打ち消し、右へ流れて止まる動きにする。傾き1°を補正し、水平線を約61%（Reels のキャプションの帯より上）に置く。下端の約10%のレジ台の上の部分は、キャプションの帯の中に収まる
+  - IG30-7：窓の横桟より下のガラス全体（窓枠の内側の縁と窓台まで、手持ちの上下の動きに合わせてマスクも動かす）に、下のガラスが曇ったような浅いぼかし。看板・スクーター・人物が読めなくなる
+  - IG15-2：v8 のまま。枠を上げてレジ台を外すと水平線が約69%に下がり、カット1からのマッチカットが崩れたため戻した。販促ののぼりは A3 の撮り直しで解決する
+  - IG15-3：わずかに寄って、下端の消波ブロックと手すりを外す
+  - IG15-8（END）：上下の揺れを測って枠で追い、文字が出る間の水平線の上下を止める
+  - End Card（IG30・IG15）と IG30 の c10 のコピー：文字の不透明度を95%→100%（`edl/mockups/ig_endcard_spec.py`。IG15 の「@mazewind2026」が4.0:1をわずかに下回るコマがあったため）。元のPNGは `exports/capcut/overlays/_before_2026-10/`
 
 ---
 
@@ -45,7 +60,8 @@ python3 scripts/check_fades.py     # PNGのフェードが見本と同じコマ�
 - 試しに一部だけ書き出す場合：`node scripts/render.mjs IG30 --out out --frames 560-680`（出力先は `remotion/out/`）
 - 画面で確かめる場合：`npx remotion studio`（ブラウザでタイムラインを見られる）
 - 出力：`exports/final/MAZE_*.mp4`。書き出しの時間とサイズは `exports/final/render_log.json` に残ります
-- 仕様：H.264 High、CRF 17、yuv420p、BT.709（タグ付き・limited）、30fps
+- 仕様：H.264 High・**レベル4.1**、CRF 17、yuv420p、BT.709（タグ付き・limited）、30fps
+  - レベルは、屋外サイネージの再生機の多くが「High@4.1/4.2まで」としているため 4.1 に固定しています
   - サイネージの4本：音声トラックなし（`muted`）
   - IG の2本：AAC 48kHz 256kbps
 - **`npx remotion render` で直接 IG を書き出さないでください。**
