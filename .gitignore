@@ -19,3 +19,9 @@ edl/mockups/*.mp4
 remotion/node_modules/
 remotion/public/
 remotion/out/
+
+# v2（施設PR版）：奥行きモデル・写真の縮小版・LPの画像（大きいので入れない）
+tools/models/
+edl/v2/thumbs/
+edl/v2/sheet_*.jpg
+edl/lp/img/
