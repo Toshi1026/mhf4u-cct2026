@@ -147,17 +147,58 @@ def font(size, weight='Regular'):
     raise FileNotFoundError(FONT_DIR)
 
 
+def text_width(text, size, weight='Regular', track=0.08):
+    """text_layer と同じ字間で描いたときの横幅（px）。"""
+    f = font(int(size), weight)
+    return sum(f.getlength(ch) for ch in text) + track * size * (len(text) - 1)
+
+
+def text_box(text, x, y, size, o):
+    """text_layer で描いたときの文字の外接枠 (x0, y0, x1, y1)。"""
+    f = font(int(size), o.get('weight', 'Regular'))
+    anchor = o.get('anchor', 'ls')
+    total = text_width(text, size, o.get('weight', 'Regular'), o.get('track', 0.08))
+    x0 = x - (total / 2 if anchor[0] == 'm' else total if anchor[0] == 'r' else 0)
+    ys = [f.getbbox(ch, anchor='l' + anchor[1]) for ch in text if ch.strip()]
+    if not ys:
+        return x0, y, x0 + total, y
+    return x0, y + min(b[1] for b in ys), x0 + total, y + max(b[3] for b in ys)
+
+
+def plate(box, kind='frost', feather=0.0, radius=0.0, alpha=1.0, **kw):
+    """文字の下に敷く板（text_layer の items に入れる）。box：(x0, y0, x1, y1)。
+    kind='frost'：背景をぼかして、明るいところほど暗くする（すりガラス）。kind='dim'：ぼかさずに一定の割合 k で暗くする。"""
+    return ('', 0, 0, 0, dict(shape='plate', box=box, kind=kind, feather=feather, radius=radius, alpha=alpha, **kw))
+
+
 def text_layer(W, H, items):
-    """items：[(text, x, y, size, opts)]。白・やわらかい影の RGBA（float 0..1）。
-    opts：anchor（PILのアンカー）、weight、track（字間 em）、alpha、shadow（強さ）。"""
+    """items：[(text, x, y, size, opts)]。白・やわらかい影の RGBA（float 0..1）と、文字の下に敷く板。
+    opts：anchor（PILのアンカー）、weight、track（字間 em）、alpha、shadow（強さ）。
+    shape='dot'：(x, y) を中心に直径 size の白い丸。shape='line'：(x, y)→to の白い線（太さ width）。
+    shape='plate'：板（plate() を参照）。"""
     im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     sh = Image.new('L', (W, H), 0)
     d = ImageDraw.Draw(im)
     ds = ImageDraw.Draw(sh)
+    plates = []
     for text, x, y, size, o in items:
+        a = int(255 * o.get('alpha', 1.0))
+        shape = o.get('shape')
+        if shape == 'plate':
+            plates.append(_plate_mask(W, H, o))
+            continue
+        if shape == 'dot':
+            r = size / 2
+            d.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255, a))
+            ds.ellipse((x - r, y - r, x + r, y + r), fill=int(a * o.get('shadow', 0.55)))
+            continue
+        if shape == 'line':
+            wd = max(1, int(round(o.get('width', 2))))
+            d.line((x, y) + tuple(o['to']), fill=(255, 255, 255, int(a * o.get('line_alpha', 0.85))), width=wd)
+            ds.line((x, y) + tuple(o['to']), fill=int(a * o.get('shadow', 0.55)), width=wd)
+            continue
         f = font(int(size), o.get('weight', 'Regular'))
         tr = o.get('track', 0.08) * size
-        a = int(255 * o.get('alpha', 1.0))
         anchor = o.get('anchor', 'ls')
         widths = [f.getlength(ch) for ch in text]
         total = sum(widths) + tr * (len(text) - 1)
@@ -170,13 +211,58 @@ def text_layer(W, H, items):
     sh1 = np.asarray(sh.filter(ImageFilter.GaussianBlur(max(2, H * 0.004)))).astype(np.float32) / 255
     sh2 = np.asarray(sh.filter(ImageFilter.GaussianBlur(max(6, H * 0.014)))).astype(np.float32) / 255
     t = np.asarray(im).astype(np.float32) / 255
-    return t, np.clip(sh1 * 0.65 + sh2 * 0.35, 0, 1)
+    return t, np.clip(sh1 * 0.65 + sh2 * 0.35, 0, 1), [p for p in plates if p is not None]
+
+
+def _plate_mask(W, H, o):
+    """板の形（縁をぼかした角丸の矩形）を、画面に収まる範囲だけ切り出して返す：(y0, y1, x0, x1, mask, opts)。"""
+    x0, y0, x1, y1 = o['box']
+    fe = o.get('feather', 0.0)
+    m = int(np.ceil(3 * fe)) + 2
+    X0, Y0 = max(0, int(np.floor(x0)) - m), max(0, int(np.floor(y0)) - m)
+    X1, Y1 = min(W, int(np.ceil(x1)) + m), min(H, int(np.ceil(y1)) + m)
+    if X1 <= X0 or Y1 <= Y0:
+        return None
+    ss = 2                                               # 角を2倍で描いてなめらかに
+    pm = Image.new('L', ((X1 - X0) * ss, (Y1 - Y0) * ss), 0)
+    ImageDraw.Draw(pm).rounded_rectangle(((x0 - X0) * ss, (y0 - Y0) * ss, (x1 - X0) * ss, (y1 - Y0) * ss),
+                                         radius=o.get('radius', 0.0) * ss, fill=int(255 * o.get('alpha', 1.0)))
+    pm = pm.resize((X1 - X0, Y1 - Y0), Image.LANCZOS)
+    mk = np.asarray(pm).astype(np.float32) / 255
+    if fe > 0:
+        mk = cv2.GaussianBlur(mk, (0, 0), fe)
+    return Y0, Y1, X0, X1, mk, o
+
+
+def _apply_plate(frame, p, alpha):
+    """板を敷く。frost：ぼかした背景を、まわりの明るさが target になるように kmin〜kmax の範囲で暗くする。"""
+    Y0, Y1, X0, X1, mk, o = p
+    m = (mk * alpha)[..., None]
+    crop = frame[Y0:Y1, X0:X1]
+    if o.get('kind', 'frost') == 'dim':
+        frame[Y0:Y1, X0:X1] = crop * (1 - m * o.get('k', 0.4))
+        return frame
+    sg = o.get('sigma', frame.shape[0] * 0.0065)
+    pad = int(3 * sg) + 1                                # ぼかしは切り出しの外も少し使う
+    a0, a1 = max(0, Y0 - pad), min(frame.shape[0], Y1 + pad)
+    b0, b1 = max(0, X0 - pad), min(frame.shape[1], X1 + pad)
+    big = cv2.GaussianBlur(np.ascontiguousarray(frame[a0:a1, b0:b1]), (0, 0), sg)
+    b = big[Y0 - a0:Y1 - a0, X0 - b0:X1 - b0]
+    lum = b @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+    loc = cv2.GaussianBlur(lum, (0, 0), sg * 3)
+    k = np.clip(1 - o.get('target', 0.36) / np.maximum(loc, 1e-3), o.get('kmin', 0.25), o.get('kmax', 0.62))
+    frame[Y0:Y1, X0:X1] = crop * (1 - m) + b * (1 - k[..., None]) * m
+    return frame
 
 
 def put_text(frame, layer, alpha=1.0):
-    t, sh = layer
+    t, sh = layer[0], layer[1]
     if alpha <= 0:
         return frame
+    if len(layer) > 2 and layer[2]:
+        frame = np.array(frame, np.float32, copy=True)
+        for p in layer[2]:
+            frame = _apply_plate(frame, p, alpha)
     f = frame * (1 - sh[..., None] * 0.6 * alpha)
     a = t[..., 3:4] * alpha
     return f * (1 - a) + t[..., :3] * a

@@ -183,7 +183,6 @@ def frames(n, W, H, fmt):
     route = merc_arr(json.load(open(ROUTE))['routes'][0]['geometry']['coordinates'])
     seg = np.r_[0, np.cumsum(np.hypot(*np.diff(route, axis=0).T))]
     seg /= seg[-1]
-    out = []
     for i in range(n):
         u = i / (n - 1)
         span, cx, cyw = _interp(keys, u)
@@ -196,13 +195,13 @@ def frames(n, W, H, fmt):
             p = photo_layer(W, H, z, cx, cyw)
             p = C.grade(p, con=0.06, sat=1.08)
             f = p if pa >= 1 else f * (1 - pa) + p * pa
-        # 道筋：0.48→0.80 で桂浜から伸び、最後は南風へ
+        # 道筋：0.47→0.77 で桂浜から伸びて南風へ。0.84→0.90 で消える
         prog = float(C.ease(np.clip((u - 0.47) / 0.30, 0, 1), 'inout'))
         if prog > 0:
             k = int(np.searchsorted(seg, prog))
             pts = route[: max(2, k + 1)].copy()
             pts = (pts * 2 ** z - np.array([cx * 2 ** z - W / 2, cyw * 2 ** z - H / 2]))
-            fade = 1 - float(C.ease(np.clip((u - 0.90) / 0.08, 0, 1), 'smooth'))
+            fade = 1 - float(C.ease(np.clip((u - 0.84) / 0.06, 0, 1), 'smooth'))   # 南風の名前が出る前に消し切る
             lay = np.zeros((H * 2, W * 2), np.uint8)
             cv2.polylines(lay, [(pts * 2).astype(np.int32)], False, 255, int(H * 0.006 * 2), cv2.LINE_AA)
             L = cv2.resize(lay, (W, H), interpolation=cv2.INTER_AREA).astype(np.float32) / 255
@@ -211,9 +210,8 @@ def frames(n, W, H, fmt):
             f = f * (1 - G[..., None] * 0.5 * fade) + col * G[..., None] * 0.35 * fade
             f = f * (1 - L[..., None] * fade) + col * L[..., None] * fade
             hx, hy = pts[-1]
-            cv2.circle(f, (int(hx), int(hy)), int(H * 0.007), (1.0, 1.0, 1.0), -1, cv2.LINE_AA) if fade > 0.5 else None
-        out.append((f, z, cx, cyw))
-    return out
+            cv2.circle(f, (int(hx), int(hy)), int(H * 0.007), (1.0, 1.0, 1.0), -1, cv2.LINE_AA) if fade > 0.1 else None  # ピンが出るまで残す
+        yield f, z, cx, cyw                              # 1コマずつ（210コマを全部メモリに載せない）
 
 
 def to_screen(lonlat, z, cx, cy, W, H):
