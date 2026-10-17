@@ -141,8 +141,8 @@ def _mosaic(W, H, z, cx, cy, zt, raw=False):
 
 
 BASE_Z = 13                             # ここまではどの段もタイルがそろっている（海も写っている）
-SEA_Z0, SEA_ZW = 16.4, 0.7              # z がここまでは、海は BASE_Z の写真を使う（上の段の沖は取得元ごとに色が違い、四角く見える）
-SEA_CALM = (12.2, 13.0)                 # z9〜12 の段は沖に色の違う多角形がある。この範囲を越えるまで、沖はまわりの海の色をぼかして使う
+SEA_Z0, SEA_ZW = 16.4, 1.5              # z がここまでは、海は BASE_Z の写真を使う（上の段の沖は取得元ごとに色が違い、四角く見える）
+SEA_CALM = (12.8, 13.3)                 # z9〜12 の段は沖に色の違う多角形がある。この範囲を越えるまで、沖はまわりの海の色をぼかして使う
 
 
 def photo_layer(W, H, z, cx, cy):
@@ -309,8 +309,9 @@ def frames(n, W, H, fmt):
         # 道筋：0.47→0.77 で桂浜から伸びて南風へ。0.84→0.90 で消える
         prog = float(C.ease(np.clip((u - 0.47) / 0.30, 0, 1), 'inout'))
         if prog > 0:
-            k = int(np.searchsorted(seg, prog))
-            pts = route[: max(2, k + 1)].copy()
+            j = min(max(int(np.searchsorted(seg, prog)), 1), len(route) - 1)   # 先端は頂点の間も補間して、なめらかに進める
+            t = (prog - seg[j - 1]) / max(seg[j] - seg[j - 1], 1e-12)
+            pts = np.vstack([route[:j], route[j - 1] * (1 - t) + route[j] * t])
             pts = (pts * 2 ** z - np.array([cx * 2 ** z - W / 2, cyw * 2 ** z - H / 2]))
             fade = 1 - float(C.ease(np.clip((u - 0.84) / 0.06, 0, 1), 'smooth'))   # 南風の名前が出る前に消し切る
             lay = np.zeros((H * 2, W * 2), np.uint8)

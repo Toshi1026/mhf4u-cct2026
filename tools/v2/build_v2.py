@@ -157,7 +157,7 @@ def shot_aerial(n, W, H, fmt):
 
 # 地名：(経度, 緯度)、名前、出る・消える（ショットの中の比）、大きさ。位置は、明るい田畑・白い河原・道筋を避けた暗い所
 MAP_LABELS = [((133.56, 33.70), '高知県', 0.15, 0.38, 1.25),        # 県の色がついてから、県の内側に（山の白い点の上を避ける）
-              ((133.425, 33.47), '土佐市', 0.40, 0.62, 1.0),        # 市街地の南の山林（仁淀川の河原にかからない）
+              ((133.425, 33.4735), '土佐市', 0.40, 0.62, 1.0),      # 市街地の南の山林（仁淀川の河原・白い造成地にかからない）
               (MZ.KATSURA, '桂浜', 0.50, 0.72, 0.9),                # 点の右下の海（道筋は左下へ伸びる）。写真の段が細かくなる前に消す
               ((133.48, 33.485), '仁淀川', 0.64, 0.86, 0.9)]        # 下流のすぐ東の山林。土佐市と同時には出ない
 MAP_OFFSET = {'桂浜': (0.020, 0.015)}                               # 点からのずらし（W, H の比）。anchor は左上
@@ -239,7 +239,7 @@ def shot_driveby(n, W, H, fmt):
     コマの間を7枚重ねた本物のモーションブラーで、車の窓から見ているように。"""
     img = C.grade(C.load(44), con=0.05, sat=1.04)
     dep = C.depth(44, C.load(44))
-    vw = 0.36 if fmt == 'ig' else 0.55
+    vw = 0.35 if fmt == 'ig' else 0.55                     # IG：0.35 なら view() の縦の制限にかからず、画角が一定
     cy = 0.50 if fmt == 'ig' else 0.42                     # サイネージは少し上を向けて、文字を置く空の帯を作る
     span = 1.0 if n >= 80 else 0.5                         # 20秒版は前半だけ（40秒版と同じ速さ。タワーの避雷針が文字の後ろに来ない）
     subs = np.linspace(-0.45, 0.45, 7)                     # コマの間を7枚重ねて、ブレをなめらかな尾に
@@ -248,7 +248,7 @@ def shot_driveby(n, W, H, fmt):
         for sub in subs:
             u = (i + sub) / (n - 1)
             e = u * span                                   # 端で切らない（最初と最後のコマもブレの幅がそろう）
-            cx = C.lerp(0.20, 0.80, e) if fmt == 'ig' else C.lerp(0.30, 0.72, e)   # sg：0.294 より内側だと最初に止まって見える
+            cx = C.lerp(0.20, 0.80, e) if fmt == 'ig' else C.lerp(0.30, 0.70, e)   # sg：0.294〜0.706 の外だと止まって見える
             f, _ = C.view(img, W, H, cx, cy, vw, dep, 0.0, lat=C.lerp(-0.05, 0.05, e))
             acc = acc + f
         yield acc / len(subs)
@@ -297,7 +297,7 @@ PRODUCE = [(7, 25), (53, 25), (46, 12), (65, 12), (42, 2), (108, 2), (55, 2), (1
 # （どこを切り出しても値札が帯に接するもの）。外しても 黄 → 橙 → 赤 → 紫 → 緑 はそろう
 PRODUCE_SKIP = {'ig': {108, 102, 109, 29}, 'sg': {109, 42}}
 # 切り出しの横のずらし（画像の幅の比）。シール・値札をフロア名から離す
-PRODUCE_DX = {'ig': {55: -0.28, 31: 0.15}, 'sg': {55: -0.15}}
+PRODUCE_DX = {'ig': {55: -0.28, 31: 0.15, 65: -0.14}, 'sg': {55: -0.15, 102: -0.05}}
 
 
 def cuts_1f(n, fmt):
@@ -319,20 +319,23 @@ def shot_1f(n, W, H, fmt):
     head, per, tail, cuts = cuts_1f(n, fmt)
     vw57 = (0.30, 0.22) if fmt == 'ig' else (0.62, 0.52)
     if head:
-        yield from photo_move(57, head, W, H, lambda u: (0.40, 0.66, C.lerp(*vw57, C.ease(u, 'out')), 1), par=0.3)
+        yield from photo_move(57, head, W, H, lambda u: (0.40, 0.66, C.lerp(*vw57, C.ease(u, 'out')), 1),
+                              par=0.3 if fmt == 'ig' else 0.0)   # サイネージは視差で柱・のぼりがゆがむので使わない
     for key, hue in cuts:
         img = C.grade(C.load(key, 2400), con=0.05, sat=1.06)
         cx, cy = blob_center(img, hue)
         ar = img.shape[1] / img.shape[0]
         vw = (0.42 if fmt == 'ig' else 0.62) * (1.0 if ar > 1 else 1.5)
         cx = np.clip(cx + PRODUCE_DX[fmt].get(key, 0.0), vw / 2, 1 - vw / 2)
+        vw = min(vw, W / H * img.shape[0] / img.shape[1] / 1.01)   # view() の縦の制限の内側から寄る（外だと寄りが止まる）
         vh = vw * img.shape[1] / img.shape[0] * H / W
         cy = np.clip(cy, vh / 2, 1 - vh / 2)
         for i in range(per):
             u = i / max(1, per - 1)
             f, _ = C.view(img, W, H, cx, cy, vw * C.lerp(1.0, 0.94, u))
             yield f
-    yield from photo_move(101, tail, W, H, lambda u: (0.42, 0.55, C.lerp(0.62, 0.55, u) if fmt == 'ig' else C.lerp(0.95, 0.88, u), 1), par=0.3)
+    # 地酒：view() の制限（IG 0.364・サイネージ 0.862）の内側から寄る
+    yield from photo_move(101, tail, W, H, lambda u: (0.42, 0.55, C.lerp(0.36, 0.33, u) if fmt == 'ig' else C.lerp(0.85, 0.78, u), 1), par=0.3)
 
 
 def cuts_2f(n, fmt):
@@ -346,7 +349,7 @@ def shot_2f(n, W, H, fmt):
     """5：階段（OCEANVIEW）を上がる → 2F のカウンターと海 → 窓の外の海（動画）。"""
     a, b, c = cuts_2f(n, fmt)
     # 階段：下から見上げて、上がっていく（奥行きで視差）
-    path = (lambda u: (0.55, C.lerp(0.62, 0.40, C.ease(u, 'inout')), C.lerp(0.62, 0.48, u), 1)) if fmt == 'ig' else \
+    path = (lambda u: (0.55, C.lerp(0.62, 0.40, C.ease(u, 'inout')), C.lerp(0.34, 0.27, u), 1)) if fmt == 'ig' else \
         (lambda u: (0.55, C.lerp(0.60, 0.45, C.ease(u, 'inout')), C.lerp(1.0, 0.85, u), 1))
     yield from photo_move(85, a, W, H, path, par=0.45, long_side=3024)
     path = (lambda u: (0.42, 0.50, C.lerp(0.55, 0.46, C.ease(u, 'out')), 1)) if fmt == 'ig' else \
@@ -364,7 +367,7 @@ def shot_2f(n, W, H, fmt):
 FLOORS = [('1F', 'ローソン ＋ 産直マーケット', {'ig': (560, 450), 'sg': (345, 412)}),
           ('2F', 'オーシャンビューカフェ', {'ig': (640, 340), 'sg': (646, 365)}),     # sg：壁の丸い照明を線が横切らない高さ
           ('3F', '展望スペース', {'ig': (600, 300), 'sg': (602, 300)}),
-          ('', '津波避難タワー', {'ig': (700, 255), 'sg': (759, 244)})]           # sg：避雷針より右の手すり
+          ('', '津波避難タワー', {'ig': (700, 255), 'sg': (759, 256)})]           # sg：避雷針より右の手すりの上
 # 名前の置き方：IG は点の真上に中央揃え（横は安全な範囲に収める）。サイネージは点の横（左右は1本のあいだ固定）
 FLOOR_SIDE = {'1F': 'right_mid', '2F': 'left', '3F': 'right', '': 'right_high'}
 FLOOR_T0 = {'ig': (0.10, 0.46, 0.56, 0.68), 'sg': (0.12, 0.29, 0.46, 0.63),   # IG の 2F は点が右から入ってくる頃
@@ -400,7 +403,7 @@ def floor_tag(W, H, fmt, label, ox, oy, a):
         if side == 'right_mid':
             x, y, o['anchor'] = ox + W * 0.03, oy + size * 0.36, 'ls'
         elif side == 'right_high':
-            x, y, o['anchor'] = ox + W * 0.06, oy - H * 0.05, 'ls'
+            x, y, o['anchor'] = ox + W * 0.06, oy - H * 0.088, 'ls'
         elif side == 'left':
             x, y, o['anchor'] = ox - W * 0.03, oy - H * 0.022, 'rs'
         else:
@@ -545,7 +548,8 @@ def texts(plan):
     s, e = st['1f']
     head, _, tail, _ = cuts_1f(e - s, plan['fmt'])
     # 入口の寄りで LAWSON の看板が文字の高さを通り抜ける（入口の最初の約2割）あいだは出さない
-    T.append(Txt(s + max(4, int(np.ceil(head * 0.22))), e - tail, lambda W, H: floor_label(W, H, '1F', 'ローソン ＋ 産直マーケット', '地元の野菜と、土佐市の特産品'), fade=8))
+    # IG は入口ののぼり・看板が行末に並ぶので、産直の最初のカットから出す
+    T.append(Txt(s + (head if ig else max(4, int(np.ceil(head * 0.22)))), e - tail, lambda W, H: floor_label(W, H, '1F', 'ローソン ＋ 産直マーケット', '地元の野菜と、土佐市の特産品'), fade=8))
     # 2F：階段（1Fのロビー）では出さず、2Fのカウンターのカットから
     s, e = st['2f']
     T.append(Txt(s + cuts_2f(e - s, plan['fmt'])[0], e - 2, lambda W, H: floor_label(W, H, '2F', 'オーシャンビューカフェ', 'MAZE WIND RETREAT ｜ @mazewind2026' if ig else 'MAZE WIND RETREAT'), fade=8))
