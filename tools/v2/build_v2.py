@@ -327,9 +327,11 @@ def shot_1f(n, W, H, fmt):
         ar = img.shape[1] / img.shape[0]
         vw = (0.42 if fmt == 'ig' else 0.62) * (1.0 if ar > 1 else 1.5)
         cx = np.clip(cx + PRODUCE_DX[fmt].get(key, 0.0), vw / 2, 1 - vw / 2)
-        vw = min(vw, W / H * img.shape[0] / img.shape[1] / 1.01)   # view() の縦の制限の内側から寄る（外だと寄りが止まる）
         vh = vw * img.shape[1] / img.shape[0] * H / W
         cy = np.clip(cy, vh / 2, 1 - vh / 2)
+        cap = W / H * img.shape[0] / img.shape[1] / 1.01            # view() の縦の制限（縦が写真の高さいっぱい）
+        if vw > cap:                                                 # 制限の内側から寄る（外だと寄りが止まる）。縦は中央から
+            vw, cy = cap, 0.5                                        # 寄せて、寄りの途中で縦に滑らないように
         for i in range(per):
             u = i / max(1, per - 1)
             f, _ = C.view(img, W, H, cx, cy, vw * C.lerp(1.0, 0.94, u))
@@ -349,7 +351,7 @@ def shot_2f(n, W, H, fmt):
     """5：階段（OCEANVIEW）を上がる → 2F のカウンターと海 → 窓の外の海（動画）。"""
     a, b, c = cuts_2f(n, fmt)
     # 階段：下から見上げて、上がっていく（奥行きで視差）
-    path = (lambda u: (0.55, C.lerp(0.62, 0.40, C.ease(u, 'inout')), C.lerp(0.34, 0.27, u), 1)) if fmt == 'ig' else \
+    path = (lambda u: (0.55, C.lerp(0.55, 0.41, C.ease(u, 'inout')), C.lerp(0.30, 0.25, u), 1)) if fmt == 'ig' else \
         (lambda u: (0.55, C.lerp(0.60, 0.45, C.ease(u, 'inout')), C.lerp(1.0, 0.85, u), 1))
     yield from photo_move(85, a, W, H, path, par=0.45, long_side=3024)
     path = (lambda u: (0.42, 0.50, C.lerp(0.55, 0.46, C.ease(u, 'out')), 1)) if fmt == 'ig' else \
