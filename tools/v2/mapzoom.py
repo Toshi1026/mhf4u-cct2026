@@ -70,7 +70,8 @@ def polys():
     return out
 
 
-def tile(z, x, y):
+def _load(z, x, y):
+    """タイル1枚（無ければ None）。控えになければ国土地理院から取ってくる。"""
     os.makedirs(TILES, exist_ok=True)
     p = os.path.join(TILES, '%d_%d_%d.jpg' % (z, x, y))
     if not os.path.exists(p):
@@ -81,7 +82,20 @@ def tile(z, x, y):
             data = b''
         open(p, 'wb').write(data)
     a = cv2.imread(p) if os.path.getsize(p) >= 100 else None
-    a = None if a is None else a[..., ::-1].astype(np.float32) / 255.0
+    return None if a is None else a[..., ::-1].astype(np.float32) / 255.0
+
+
+def tile_raw(z, x, y):
+    """埋めないタイルと、写っている所のマスク（黒い所・無いタイルは 0）。"""
+    a = _load(z, x, y)
+    if a is None:
+        return None, None
+    v = cv2.erode((a.max(axis=2) >= 0.04).astype(np.uint8), np.ones((5, 5), np.uint8)).astype(np.float32)
+    return a, v
+
+
+def tile(z, x, y):
+    a = _load(z, x, y)
     black = None if a is None else (a.max(axis=2) < 0.04).astype(np.float32)
     if a is not None and black.mean() < 0.002:
         return a
@@ -98,24 +112,75 @@ def tile(z, x, y):
     return a * (1 - m) + q * m
 
 
-def photo_layer(W, H, z, cx, cy):
-    """航空写真（世界座標の中心 cx,cy、ズーム z）を W×H に。"""
-    zt = int(min(18, max(2, math.floor(z + 0.5))))
+def _mosaic(W, H, z, cx, cy, zt, raw=False):
+    """ズーム段 zt のタイルを並べて W×H に写す。raw=True：埋めないタイルと、写っている所のマスクも返す。"""
     s = 2.0 ** (z - zt)                                 # タイルの1pxが出力の何pxか
-    tw = 256 * s
     ox, oy = cx * 2 ** zt - (W / 2) / s, cy * 2 ** zt - (H / 2) / s   # タイル座標系での左上
     x0, y0 = int(math.floor(ox / 256)), int(math.floor(oy / 256))
     x1, y1 = int(math.floor((ox + W / s) / 256)), int(math.floor((oy + H / s) / 256))
     mw, mh = (x1 - x0 + 1) * 256, (y1 - y0 + 1) * 256
     mos = np.zeros((mh, mw, 3), np.float32)
     mos[:] = SEA
+    val = np.zeros((mh, mw), np.float32) if raw else None
     for ty in range(y0, y1 + 1):
         for tx in range(x0, x1 + 1):
-            t = tile(zt, tx, ty)
-            if t is not None:
-                mos[(ty - y0) * 256:(ty - y0 + 1) * 256, (tx - x0) * 256:(tx - x0 + 1) * 256] = t
+            sl = (slice((ty - y0) * 256, (ty - y0 + 1) * 256), slice((tx - x0) * 256, (tx - x0 + 1) * 256))
+            if raw:
+                t, v = tile_raw(zt, tx, ty)
+                if t is not None:
+                    mos[sl], val[sl] = t, v
+            else:
+                t = tile(zt, tx, ty)
+                if t is not None:
+                    mos[sl] = t
     M = np.float32([[s, 0, -(ox - x0 * 256) * s], [0, s, -(oy - y0 * 256) * s]])
-    return np.clip(cv2.warpAffine(mos, M, (W, H), flags=cv2.INTER_CUBIC if s > 1 else cv2.INTER_AREA, borderMode=cv2.BORDER_REPLICATE), 0, 1)
+    img = np.clip(cv2.warpAffine(mos, M, (W, H), flags=cv2.INTER_CUBIC if s > 1 else cv2.INTER_AREA, borderMode=cv2.BORDER_REPLICATE), 0, 1)
+    if not raw:
+        return img
+    return img, cv2.warpAffine(val, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+
+
+BASE_Z = 13                             # ここまではどの段もタイルがそろっている（海も写っている）
+
+
+def photo_layer(W, H, z, cx, cy):
+    """航空写真（世界座標の中心 cx,cy、ズーム z）を W×H に。
+    ズームの段は1コマで切り替えず、となりの段と z の端数でなめらかに重ねる。z14 から上は沖のタイルが無いので、
+    z13 を土台にして、その上に写っている所だけを縁をぼかして重ねる（タイルの四角いつぎはぎを出さない）。"""
+    zf = int(min(17, max(2, math.floor(z))))
+    w = float(C.ease(np.clip(z - zf, 0, 1), 'smooth'))
+    if zf + 1 <= BASE_Z:
+        a = _mosaic(W, H, z, cx, cy, zf)
+        return a if w <= 0 else a * (1 - w) + _mosaic(W, H, z, cx, cy, zf + 1) * w
+    lv = _mosaic(W, H, z, cx, cy, BASE_Z)               # 段ごとの絵（BASE_Z はそろっている）
+    prev = None
+    for L in range(BASE_Z + 1, zf + 2):
+        img, v = _mosaic(W, H, z, cx, cy, L, raw=True)
+        prev, lv = lv, _fill(img, v, lv)
+    if prev is None:                                    # zf == BASE_Z：BASE_Z と次の段を重ねる
+        return lv
+    return prev * (1 - w) + lv * w
+
+
+def _fill(img, v, base):
+    """写っていない所（沖のタイルが無い所）を、まわりの同じ段の写真の色を大きくぼかして埋める。
+    下の段の絵で埋めると、色の違う四角いつぎはぎが出るため。まわりに写真が無い所だけ base を使う。"""
+    H, W = v.shape
+    k = 8                                               # ぼかしは 1/8 の大きさで（速く、なめらかに）
+    sw, sh = max(1, W // k), max(1, H // k)
+    vs = cv2.resize(v, (sw, sh), interpolation=cv2.INTER_AREA)
+    ims = cv2.resize(img * v[..., None], (sw, sh), interpolation=cv2.INTER_AREA)
+    F = cv2.resize(base, (sw, sh), interpolation=cv2.INTER_AREA)
+    for f in (0.4, 0.15, 0.05):                         # 大きい範囲から小さい範囲へ、写っている所の色に寄せる
+        sg = f * max(sw, sh)
+        den = cv2.GaussianBlur(vs, (0, 0), sg)
+        est = cv2.GaussianBlur(ims, (0, 0), sg) / np.maximum(den, 1e-4)[..., None]
+        g = np.clip(den / 0.15, 0, 1)[..., None]
+        F = F * (1 - g) + est * g
+    F = cv2.resize(F, (W, H), interpolation=cv2.INTER_CUBIC)
+    m = np.clip((cv2.GaussianBlur(v, (0, 0), 0.01 * max(W, H)) - 0.5) / 0.5, 0, 1)   # 写っている所の内側だけ
+    m = (m * m * (3 - 2 * m))[..., None]
+    return np.clip(F * (1 - m) + img * m, 0, 1)
 
 
 def vector_layer(W, H, z, cx, cy, kochi_a):

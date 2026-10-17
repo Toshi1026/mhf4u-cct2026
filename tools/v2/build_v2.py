@@ -75,14 +75,15 @@ def baked(path, n, W, H, start=0):
 class Txt:
     """出る・消えるをコマで決める文字。layout(W,H) → items。"""
 
-    def __init__(self, f0, f1, items_fn, fade=12):
+    def __init__(self, f0, f1, items_fn, fade=12, fade_out=None):
         self.f0, self.f1, self.items_fn, self.fade = f0, f1, items_fn, fade
+        self.fade_out = fade if fade_out is None else fade_out
         self.cache = {}
 
     def alpha(self, f):
         if f < self.f0 or f >= self.f1:
             return 0.0
-        a = min(1.0, (f - self.f0 + 1) / self.fade, (self.f1 - f) / self.fade)
+        a = min(1.0, (f - self.f0 + 1) / self.fade, (self.f1 - f) / max(1, self.fade_out))
         return float(C.ease(a, 'smooth'))
 
     def layer(self, W, H):
@@ -91,10 +92,10 @@ class Txt:
         return self.cache[(W, H)]
 
 
-def floor_label(W, H, floor, name, sub=None, base=None):
+def floor_label(W, H, floor, name, sub=None, base=None, pad=0.35, fea=0.30):
     """フロア名（左下）。1F は細めの大きい数字、横に施設名。後ろに、左端から文字の右まで、縁をぼかした
     すりガラスの帯を敷く（産直の値札・白く飛んだ窓・砂浜の上でも読めるように）。
-    IG は Reels の下の UI（y>0.65H）にかからない高さ。base：ベースライン（H の比）。"""
+    IG は Reels の下の UI（y>0.65H）にかからない高さ。base：ベースライン（H の比）。pad・fea：帯の上下の余白とぼかし（大きい数字の比）。"""
     ig = W < H
     m = 0.06 * W if ig else 0.05 * W
     base = H * (base or (0.612 if ig else 0.86))
@@ -107,7 +108,7 @@ def floor_label(W, H, floor, name, sub=None, base=None):
     boxes = [C.text_box(*t) for t in it]
     x1 = max(b[2] for b in boxes)
     y0, y1 = min(b[1] for b in boxes), max(b[3] for b in boxes)
-    band = C.plate((-W * 0.2, y0 - big * 0.35, x1 + big * 0.9, y1 + big * 0.35), feather=big * 0.30,
+    band = C.plate((-W * 0.2, y0 - big * pad, x1 + big * 0.9, y1 + big * pad), feather=big * fea,
                    sigma=big * 0.15, target=0.34, kmin=0.22, kmax=0.62)
     return [band] + it
 
@@ -235,20 +236,22 @@ def shot_map(n, W, H, fmt):
 
 def shot_driveby(n, W, H, fmt):
     """2：車窓。仁淀川を渡ると左手に南風。建物の写真（44）を横に流し、手前ほど速く動く視差と、
-    コマの間を3枚重ねた本物のモーションブラーで、車の窓から見ているように。"""
+    コマの間を7枚重ねた本物のモーションブラーで、車の窓から見ているように。"""
     img = C.grade(C.load(44), con=0.05, sat=1.04)
     dep = C.depth(44, C.load(44))
     vw = 0.36 if fmt == 'ig' else 0.55
     cy = 0.50 if fmt == 'ig' else 0.42                     # サイネージは少し上を向けて、文字を置く空の帯を作る
+    span = 1.0 if n >= 80 else 0.5                         # 20秒版は前半だけ（40秒版と同じ速さ。タワーの避雷針が文字の後ろに来ない）
+    subs = np.linspace(-0.45, 0.45, 7)                     # コマの間を7枚重ねて、ブレをなめらかな尾に
     for i in range(n):
         acc = 0
-        for sub in (-0.33, 0.0, 0.33):
+        for sub in subs:
             u = (i + sub) / (n - 1)
-            e = float(np.clip(u, 0, 1))
+            e = float(np.clip(u, 0, 1)) * span
             cx = C.lerp(0.20, 0.80, e) if fmt == 'ig' else C.lerp(0.28, 0.72, e)
             f, _ = C.view(img, W, H, cx, cy, vw, dep, 0.0, lat=C.lerp(-0.05, 0.05, e))
             acc = acc + f
-        yield acc / 3
+        yield acc / len(subs)
 
 
 def shot_relight(n, W, H, fmt):
@@ -290,25 +293,33 @@ def blob_center(img, hue, tol=14, smin=0.35):
 # 1F の色のリズム：黄 → 橙 → 赤 → 紫 → 緑。色のかたまりがいつも画面の同じ位置に来るように切り出す
 PRODUCE = [(7, 25), (53, 25), (72, 25), (46, 12), (65, 12), (42, 2), (108, 2), (55, 2), (102, 160), (29, 150),
            (31, 150), (109, 45), (26, 55)]
-# 切り出しの横のずらし（画像の幅の比）。IG の直七（109）は、右の値札がフロア名のすぐ右にくっきり残るので右へ逃がす
-PRODUCE_DX = {'ig': {109: -0.10}, 'sg': {}}
+# フロア名のすりガラスの帯の縁に、値札・シールの文字がくっきり並んで、テロップの続きに読めてしまうカットは外す
+# （どこを切り出しても値札が帯に接するもの）。外しても 黄 → 橙 → 赤 → 紫 → 緑 はそろう
+PRODUCE_SKIP = {'ig': {108, 102, 109}, 'sg': {109}}
+# 切り出しの横のずらし（画像の幅の比）。シール・値札をフロア名から離す
+PRODUCE_DX = {'ig': {55: -0.28, 31: 0.15}, 'sg': {55: -0.15}}
 
 
-def tail_1f(n):
-    """1F の最後の地酒（仁淀川）のカットのコマ数。文字はこのカットの手前で消す。"""
-    return 20 if n >= 100 else 12
+def cuts_1f(n, fmt):
+    """1F の割り付け：(入口のコマ数, 産直1カットのコマ数, 地酒のコマ数, 産直のカット)。
+    入口が短すぎて一瞬だけ映るときは入口を出さず、余りは地酒に回す。文字は地酒のカットの手前で消す。"""
+    cuts = [c for c in PRODUCE if c[0] not in PRODUCE_SKIP[fmt]]
+    head0 = 20 if n >= 100 else 10
+    tail = 20 if n >= 100 else 12
+    per = max(5, (n - head0 - tail) // len(cuts))
+    head = n - tail - per * len(cuts)
+    if head < 10:
+        tail += max(0, head)
+        head = 0
+    return head, per, tail, cuts
 
 
-def shot_1f(n, W, H, fmt, cuts=None):
+def shot_1f(n, W, H, fmt):
     """4：1F。ローソンの入口 → 色でつなぐ産直の連打 → 地場の酒（仁淀川）。"""
-    cuts = cuts or PRODUCE
-    head = 20 if n >= 100 else 10
-    tail = tail_1f(n)
-    per = max(5, (n - head - tail) // len(cuts))
-    rest = n - head - tail - per * len(cuts)
-    head += rest
+    head, per, tail, cuts = cuts_1f(n, fmt)
     vw57 = (0.30, 0.22) if fmt == 'ig' else (0.62, 0.52)
-    yield from photo_move(57, head, W, H, lambda u: (0.40, 0.66, C.lerp(*vw57, C.ease(u, 'out')), 1), par=0.3)
+    if head:
+        yield from photo_move(57, head, W, H, lambda u: (0.40, 0.66, C.lerp(*vw57, C.ease(u, 'out')), 1), par=0.3)
     for key, hue in cuts:
         img = C.grade(C.load(key, 2400), con=0.05, sat=1.06)
         cx, cy = blob_center(img, hue)
@@ -351,12 +362,12 @@ def shot_2f(n, W, H, fmt):
 #   IG：カメラは横にだけ動き、1F はいつも Reels の下の UI の中にある。点は1Fの柱、名前は UI より上に出して線でつなぐ
 #   サイネージ：1F の点はローソンの看板の上のひさし（看板の文字を避ける）
 FLOORS = [('1F', 'ローソン ＋ 産直マーケット', {'ig': (560, 450), 'sg': (345, 412)}),
-          ('2F', 'オーシャンビューカフェ', {'ig': (640, 340), 'sg': (640, 355)}),
+          ('2F', 'オーシャンビューカフェ', {'ig': (640, 340), 'sg': (640, 361)}),     # sg：壁の丸い照明を線が横切らない高さ
           ('3F', '展望スペース', {'ig': (600, 300), 'sg': (600, 300)}),
-          ('', '津波避難タワー', {'ig': (700, 255), 'sg': (700, 255)})]
+          ('', '津波避難タワー', {'ig': (700, 255), 'sg': (740, 250)})]           # sg：避雷針より右の手すり
 # 名前の置き方：IG は点の真上に中央揃え（横は安全な範囲に収める）。サイネージは点の横（左右は1本のあいだ固定）
 FLOOR_SIDE = {'1F': 'right_mid', '2F': 'left', '3F': 'right', '': 'right_high'}
-FLOOR_T0 = {'ig': (0.10, 0.36, 0.52, 0.66), 'sg': (0.12, 0.29, 0.46, 0.63)}
+FLOOR_T0 = {'ig': (0.10, 0.46, 0.56, 0.68), 'sg': (0.12, 0.29, 0.46, 0.63)}   # IG の 2F は点が右から入ってくる頃
 
 
 def floors_cam(u, fmt):
@@ -375,8 +386,13 @@ def floor_tag(W, H, fmt, label, ox, oy, a):
     L, T, R, B = safe_rect(W, H)
     side = FLOOR_SIDE[label[:2] if label[:1].isdigit() else '']
     if ig:
-        # 点の真上（文字の下端と点のあいだを 0.02H）。下の UI より上に止め、離れたら線でつなぐ
-        x = float(np.clip(ox, L + lw / 2 + size * 0.6, R - lw / 2 - size * 0.6))
+        # 点の真上（文字の下端と点のあいだを 0.02H）。下の UI より上に止め、離れたら線でつなぐ。
+        # 横は安全な範囲になめらかに収める（端で急に止まる・動き出すのを出さない）。ほぼ全幅の 1F は中央に固定
+        lo, hi = L + lw / 2 + size * 0.6, R - lw / 2 - size * 0.6
+        if label.startswith('1F'):
+            x = (lo + hi) / 2
+        else:
+            x = float(size * np.logaddexp(lo / size, -np.logaddexp(-ox / size, -hi / size)))
         y = min(oy - H * 0.022, B - size * 0.55)
         o['anchor'] = 'ms'
     else:
@@ -427,7 +443,7 @@ def shot_floors(n, W, H, fmt):
             px, py = pts[fmt]
             ox, oy = C.to_out(A, px * sc, py * sc)
             if fmt == 'ig':                                  # 点が画面の右から入ってくるまでは出さない
-                a *= float(C.ease(np.clip((W * 0.94 - ox) / (W * 0.08), 0, 1), 'smooth'))
+                a *= float(C.ease(np.clip((W * 0.94 - ox) / (W * 0.20), 0, 1), 'smooth'))
                 if a <= 0.01:
                     continue
             items += floor_tag(W, H, fmt, (fl + '  ' if fl else '') + name, ox, oy, a)
@@ -520,20 +536,21 @@ def texts(plan):
         T.append(Txt(s + int(n * (0.45 if n >= 120 else 0.38)), s + int(n * 0.78), lambda W, H: [
             ('Seaside MAZE ｜ 南風', W / 2, H * 0.155, H * 0.024, dict(anchor='mm', track=0.12, shadow=0.8))], fade=10))
     else:
-        T.append(Txt(s + int(n * 0.45), e - int(n * 0.12), lambda W, H: [
+        T.append(Txt(s + int(n * 0.45), e - int(n * 0.16), lambda W, H: [
             ('Seaside MAZE', W * 0.05, H * 0.085, H * 0.052, dict(anchor='lm', track=0.12, shadow=0.8)),
             ('南風', W * 0.05, H * 0.147, H * 0.032, dict(anchor='lm', track=0.6, alpha=0.9, shadow=0.8))], fade=10))
     # 1F：地酒（仁淀川）のカットには文字を乗せない（箱の筆文字と重なるため、その手前で消す）
     s, e = st['1f']
-    T.append(Txt(s + 4, e - tail_1f(e - s), lambda W, H: floor_label(W, H, '1F', 'ローソン ＋ 産直マーケット', '地元の野菜と、土佐市の特産品'), fade=8))
+    T.append(Txt(s + 4, e - cuts_1f(e - s, plan['fmt'])[2], lambda W, H: floor_label(W, H, '1F', 'ローソン ＋ 産直マーケット', '地元の野菜と、土佐市の特産品'), fade=8))
     # 2F：階段（1Fのロビー）では出さず、2Fのカウンターのカットから
     s, e = st['2f']
     T.append(Txt(s + cuts_2f(e - s, plan['fmt'])[0], e - 2, lambda W, H: floor_label(W, H, '2F', 'オーシャンビューカフェ', 'MAZE WIND RETREAT ｜ @mazewind2026' if ig else 'MAZE WIND RETREAT'), fade=8))
     if 'deck' in st:
-        # 屋上：水平線と砂州のあいだの海の帯
+        # 屋上：水平線と砂州のあいだの海の帯（IG は帯も海の帯の中に収めて、水平線を隠さない）
         s, e = st['deck']
         T.append(Txt(s + 4, e, lambda W, H: floor_label(W, H, '3F', '屋上・展望スペース', '津波避難タワーは、どなたでも上まで',
-                                                         base=0.594 if ig else 0.68), fade=8))
+                                                         base=0.600 if ig else 0.68, pad=0.12 if ig else 0.35,
+                                                         fea=0.15 if ig else 0.30), fade=8))
     # END：IG は看板の下の暗い壁（Reels の下の UI より上）。サイネージは左の暗い壁に左揃え
     s, e = st['end']
     if ig:
@@ -545,7 +562,7 @@ def texts(plan):
         ('南風 ｜ 高知県土佐市新居・国道56号沿い', W * ex, H * (ey[0] + ey[1]), H * (0.019 if ig else 0.029),
          dict(anchor=an, track=0.12, alpha=0.95)),
         ('1F LAWSON 7:00–23:00　／　2F CAFE 11:00–18:00', W * ex, H * (ey[0] + ey[2]), H * (0.0155 if ig else 0.024),
-         dict(anchor=an, track=0.08, alpha=0.85))], fade=18))
+         dict(anchor=an, track=0.08, alpha=0.85))], fade=18, fade_out=1))     # 最後のコマまで消さない
     return T, st
 
 

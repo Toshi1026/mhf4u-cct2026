@@ -5,7 +5,7 @@ import subprocess
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 import pillow_heif
 
 pillow_heif.register_heif_opener()
@@ -187,15 +187,9 @@ def text_layer(W, H, items):
         if shape == 'plate':
             plates.append(_plate_mask(W, H, o))
             continue
-        if shape == 'dot':
-            r = size / 2
-            d.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255, a))
-            ds.ellipse((x - r, y - r, x + r, y + r), fill=int(a * o.get('shadow', 0.55)))
-            continue
-        if shape == 'line':
-            wd = max(1, int(round(o.get('width', 2))))
-            d.line((x, y) + tuple(o['to']), fill=(255, 255, 255, int(a * o.get('line_alpha', 0.85))), width=wd)
-            ds.line((x, y) + tuple(o['to']), fill=int(a * o.get('shadow', 0.55)), width=wd)
+        if shape in ('dot', 'line'):
+            fill = a if shape == 'dot' else int(a * o.get('line_alpha', 0.85))
+            _aa_shape(im, sh, shape, x, y, size, o, fill, int(a * o.get('shadow', 0.55)))
             continue
         f = font(int(size), o.get('weight', 'Regular'))
         tr = o.get('track', 0.08) * size
@@ -212,6 +206,35 @@ def text_layer(W, H, items):
     sh2 = np.asarray(sh.filter(ImageFilter.GaussianBlur(max(6, H * 0.014)))).astype(np.float32) / 255
     t = np.asarray(im).astype(np.float32) / 255
     return t, np.clip(sh1 * 0.65 + sh2 * 0.35, 0, 1), [p for p in plates if p is not None]
+
+
+def _aa_shape(im, sh, shape, x, y, size, o, fill, shadow):
+    """丸・線を4倍で描いて縮める（縁がぎざぎざにならず、小数の座標でも位置がちらつかない）。"""
+    ss = 4
+    if shape == 'dot':
+        r = size / 2
+        box = (x - r, y - r, x + r, y + r)
+    else:
+        wd = max(1.0, o.get('width', 2))
+        x1, y1 = o['to']
+        box = (min(x, x1) - wd, min(y, y1) - wd, max(x, x1) + wd, max(y, y1) + wd)
+    X0, Y0 = int(np.floor(box[0])) - 2, int(np.floor(box[1])) - 2
+    X1, Y1 = int(np.ceil(box[2])) + 2, int(np.ceil(box[3])) + 2
+    X0, Y0, X1, Y1 = max(0, X0), max(0, Y0), min(im.width, X1), min(im.height, Y1)
+    if X1 <= X0 or Y1 <= Y0:
+        return
+    pm = Image.new('L', ((X1 - X0) * ss, (Y1 - Y0) * ss), 0)
+    dp = ImageDraw.Draw(pm)
+    if shape == 'dot':
+        dp.ellipse(tuple((v - off) * ss for v, off in zip(box, (X0, Y0, X0, Y0))), fill=255)
+    else:
+        dp.line(((x - X0) * ss, (y - Y0) * ss, (x1 - X0) * ss, (y1 - Y0) * ss), fill=255, width=max(1, int(round(wd * ss))))
+    m = pm.resize((X1 - X0, Y1 - Y0), Image.LANCZOS)
+    patch = Image.new('RGBA', m.size, (255, 255, 255, 0))
+    patch.putalpha(m.point(lambda v: v * fill // 255))
+    im.alpha_composite(patch, (X0, Y0))
+    region = sh.crop((X0, Y0, X1, Y1))
+    sh.paste(ImageChops.lighter(region, m.point(lambda v: v * shadow // 255)), (X0, Y0))
 
 
 def _plate_mask(W, H, o):
