@@ -149,16 +149,16 @@ def shot_road(n, W, H, fmt):
 def shot_aerial(n, W, H, fmt):
     """0：冒頭。LP の空撮（仁淀川河口大橋と河口・太平洋）を奥行きでゆっくり押し込む。"""
     if fmt == 'ig':
-        path = lambda u: (C.lerp(0.40, 0.44, u), 0.50, C.lerp(0.42, 0.30, C.ease(u, 'out')), 1)
+        path = lambda u: (C.lerp(0.40, 0.44, u), 0.50, C.lerp(0.33, 0.30, C.ease(u, 'out')), 1)   # 0.334 より広いと止まって見える
     else:
-        path = lambda u: (0.50, 0.52, C.lerp(0.98, 0.78, C.ease(u, 'out')), 1)
+        path = lambda u: (0.50, 0.52, C.lerp(0.79, 0.72, C.ease(u, 'out')), 1)                    # 0.794 より広いと止まって見える
     return photo_move('lp:about_s02.jpg', n, W, H, path, par=0.5, grade=dict(con=0.04, sat=1.03), long_side=1500)
 
 
 # 地名：(経度, 緯度)、名前、出る・消える（ショットの中の比）、大きさ。位置は、明るい田畑・白い河原・道筋を避けた暗い所
-MAP_LABELS = [((133.56, 33.66), '高知県', 0.15, 0.40, 1.25),        # 県の色がついてから、県の内側に
+MAP_LABELS = [((133.56, 33.70), '高知県', 0.15, 0.38, 1.25),        # 県の色がついてから、県の内側に（山の白い点の上を避ける）
               ((133.425, 33.47), '土佐市', 0.40, 0.62, 1.0),        # 市街地の南の山林（仁淀川の河原にかからない）
-              (MZ.KATSURA, '桂浜', 0.50, 0.79, 0.9),                # 点の右下の海（道筋は左下へ伸びる）
+              (MZ.KATSURA, '桂浜', 0.50, 0.72, 0.9),                # 点の右下の海（道筋は左下へ伸びる）。写真の段が細かくなる前に消す
               ((133.48, 33.485), '仁淀川', 0.64, 0.86, 0.9)]        # 下流のすぐ東の山林。土佐市と同時には出ない
 MAP_OFFSET = {'桂浜': (0.020, 0.015)}                               # 点からのずらし（W, H の比）。anchor は左上
 
@@ -247,8 +247,8 @@ def shot_driveby(n, W, H, fmt):
         acc = 0
         for sub in subs:
             u = (i + sub) / (n - 1)
-            e = float(np.clip(u, 0, 1)) * span
-            cx = C.lerp(0.20, 0.80, e) if fmt == 'ig' else C.lerp(0.28, 0.72, e)
+            e = u * span                                   # 端で切らない（最初と最後のコマもブレの幅がそろう）
+            cx = C.lerp(0.20, 0.80, e) if fmt == 'ig' else C.lerp(0.30, 0.72, e)   # sg：0.294 より内側だと最初に止まって見える
             f, _ = C.view(img, W, H, cx, cy, vw, dep, 0.0, lat=C.lerp(-0.05, 0.05, e))
             acc = acc + f
         yield acc / len(subs)
@@ -291,11 +291,11 @@ def blob_center(img, hue, tol=14, smin=0.35):
 
 
 # 1F の色のリズム：黄 → 橙 → 赤 → 紫 → 緑。色のかたまりがいつも画面の同じ位置に来るように切り出す
-PRODUCE = [(7, 25), (53, 25), (72, 25), (46, 12), (65, 12), (42, 2), (108, 2), (55, 2), (102, 160), (29, 150),
-           (31, 150), (109, 45), (26, 55)]
+PRODUCE = [(7, 25), (53, 25), (46, 12), (65, 12), (42, 2), (108, 2), (55, 2), (102, 160), (29, 150),
+           (31, 150), (109, 45), (26, 55)]                     # 72 は 53 と同じ写真なので外した
 # フロア名のすりガラスの帯の縁に、値札・シールの文字がくっきり並んで、テロップの続きに読めてしまうカットは外す
 # （どこを切り出しても値札が帯に接するもの）。外しても 黄 → 橙 → 赤 → 紫 → 緑 はそろう
-PRODUCE_SKIP = {'ig': {108, 102, 109}, 'sg': {109}}
+PRODUCE_SKIP = {'ig': {108, 102, 109, 29}, 'sg': {109, 42}}
 # 切り出しの横のずらし（画像の幅の比）。シール・値札をフロア名から離す
 PRODUCE_DX = {'ig': {55: -0.28, 31: 0.15}, 'sg': {55: -0.15}}
 
@@ -362,19 +362,20 @@ def shot_2f(n, W, H, fmt):
 #   IG：カメラは横にだけ動き、1F はいつも Reels の下の UI の中にある。点は1Fの柱、名前は UI より上に出して線でつなぐ
 #   サイネージ：1F の点はローソンの看板の上のひさし（看板の文字を避ける）
 FLOORS = [('1F', 'ローソン ＋ 産直マーケット', {'ig': (560, 450), 'sg': (345, 412)}),
-          ('2F', 'オーシャンビューカフェ', {'ig': (640, 340), 'sg': (640, 361)}),     # sg：壁の丸い照明を線が横切らない高さ
-          ('3F', '展望スペース', {'ig': (600, 300), 'sg': (600, 300)}),
-          ('', '津波避難タワー', {'ig': (700, 255), 'sg': (740, 250)})]           # sg：避雷針より右の手すり
+          ('2F', 'オーシャンビューカフェ', {'ig': (640, 340), 'sg': (646, 365)}),     # sg：壁の丸い照明を線が横切らない高さ
+          ('3F', '展望スペース', {'ig': (600, 300), 'sg': (602, 300)}),
+          ('', '津波避難タワー', {'ig': (700, 255), 'sg': (759, 244)})]           # sg：避雷針より右の手すり
 # 名前の置き方：IG は点の真上に中央揃え（横は安全な範囲に収める）。サイネージは点の横（左右は1本のあいだ固定）
 FLOOR_SIDE = {'1F': 'right_mid', '2F': 'left', '3F': 'right', '': 'right_high'}
-FLOOR_T0 = {'ig': (0.10, 0.46, 0.56, 0.68), 'sg': (0.12, 0.29, 0.46, 0.63)}   # IG の 2F は点が右から入ってくる頃
+FLOOR_T0 = {'ig': (0.10, 0.46, 0.56, 0.68), 'sg': (0.12, 0.29, 0.46, 0.63),   # IG の 2F は点が右から入ってくる頃
+            'sg_short': (0.08, 0.22, 0.36, 0.50)}                              # サイネージ20秒版：タワーを1秒近く読めるように
 
 
 def floors_cam(u, fmt):
     e = C.ease(u, 'inout')
     if fmt == 'ig':
         return C.lerp(0.48, 0.72, e), C.lerp(0.70, 0.46, e), 0.36
-    return C.lerp(0.58, 0.64, e), C.lerp(0.60, 0.50, e), C.lerp(0.66, 0.58, u)
+    return C.lerp(0.58, 0.64, e), C.lerp(0.60, 0.50, e), C.lerp(0.706, 0.621, u)
 
 
 def floor_tag(W, H, fmt, label, ox, oy, a):
@@ -433,11 +434,12 @@ def shot_floors(n, W, H, fmt):
     for i in range(n):
         u = i / (n - 1)
         cx, cy, vw = floors_cam(u, fmt)
-        f, A = C.view(img, W, H, cx, cy, vw, dep, 0.35)
+        f, A = C.view(img, W, H, cx, cy, vw, dep, 0.35 if fmt == 'ig' else 0.0)   # サイネージは視差で庇の柱がゆがむので使わない
         items = []
         for k, (fl, name, pts) in enumerate(FLOORS):
-            t0 = FLOOR_T0[fmt][k]
-            a = float(C.ease(np.clip((u - t0) / 0.10, 0, 1), 'smooth'))
+            short = n < 100 and fmt + '_short' in FLOOR_T0
+            t0 = FLOOR_T0[fmt + '_short' if short else fmt][k]
+            a = float(C.ease(np.clip((u - t0) / (0.08 if short else 0.10), 0, 1), 'smooth'))
             if a <= 0:
                 continue
             px, py = pts[fmt]
@@ -468,7 +470,7 @@ def shot_end(n, W, H, fmt):
     IG：看板を画面の上 0.08〜0.52H に収まる大きさで置き、下の暗い壁に文字（Reels の下の UI より上）。
     看板の下の窓の灯りは、壁の暗さへ溶かして見せない。"""
     if fmt != 'ig':
-        path = lambda u: (0.50, 0.40, C.lerp(0.95, 0.86, C.ease(u, 'out')), 1)
+        path = lambda u: (0.50, 0.40, C.lerp(0.88, 0.86, C.ease(u, 'out')), 1)    # 0.881 より広いと途中まで止まって見える
         yield from photo_move(41, n, W, H, path, par=0.25, long_side=2048, grade=dict(con=0.04, sat=1.0))
         return
     img = C.grade(C.load(41, 2048), con=0.04, sat=1.0)
@@ -541,7 +543,9 @@ def texts(plan):
             ('南風', W * 0.05, H * 0.147, H * 0.032, dict(anchor='lm', track=0.6, alpha=0.9, shadow=0.8))], fade=10))
     # 1F：地酒（仁淀川）のカットには文字を乗せない（箱の筆文字と重なるため、その手前で消す）
     s, e = st['1f']
-    T.append(Txt(s + 4, e - cuts_1f(e - s, plan['fmt'])[2], lambda W, H: floor_label(W, H, '1F', 'ローソン ＋ 産直マーケット', '地元の野菜と、土佐市の特産品'), fade=8))
+    head, _, tail, _ = cuts_1f(e - s, plan['fmt'])
+    # 入口の寄りで LAWSON の看板が文字の高さを通り抜ける（入口の最初の約2割）あいだは出さない
+    T.append(Txt(s + max(4, int(np.ceil(head * 0.22))), e - tail, lambda W, H: floor_label(W, H, '1F', 'ローソン ＋ 産直マーケット', '地元の野菜と、土佐市の特産品'), fade=8))
     # 2F：階段（1Fのロビー）では出さず、2Fのカウンターのカットから
     s, e = st['2f']
     T.append(Txt(s + cuts_2f(e - s, plan['fmt'])[0], e - 2, lambda W, H: floor_label(W, H, '2F', 'オーシャンビューカフェ', 'MAZE WIND RETREAT ｜ @mazewind2026' if ig else 'MAZE WIND RETREAT'), fade=8))

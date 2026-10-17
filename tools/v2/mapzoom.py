@@ -141,6 +141,8 @@ def _mosaic(W, H, z, cx, cy, zt, raw=False):
 
 
 BASE_Z = 13                             # ここまではどの段もタイルがそろっている（海も写っている）
+SEA_Z0, SEA_ZW = 16.4, 0.7              # z がここまでは、海は BASE_Z の写真を使う（上の段の沖は取得元ごとに色が違い、四角く見える）
+SEA_CALM = (12.2, 13.0)                 # z9〜12 の段は沖に色の違う多角形がある。この範囲を越えるまで、沖はまわりの海の色をぼかして使う
 
 
 def photo_layer(W, H, z, cx, cy):
@@ -152,11 +154,13 @@ def photo_layer(W, H, z, cx, cy):
     if zf + 1 <= BASE_Z:
         a = _mosaic(W, H, z, cx, cy, zf)
         return a if w <= 0 else a * (1 - w) + _mosaic(W, H, z, cx, cy, zf + 1) * w
-    lv = _mosaic(W, H, z, cx, cy, BASE_Z)               # 段ごとの絵（BASE_Z はそろっている）
+    lv = base = _mosaic(W, H, z, cx, cy, BASE_Z)        # 段ごとの絵（BASE_Z はそろっている）
+    c = 1 - float(C.ease(np.clip((z - SEA_Z0) / SEA_ZW, 0, 1), 'smooth'))
+    S = (_sea_mask(base, 2.0 ** (z - BASE_Z)) * c)[..., None] if c > 0 else 0.0
     prev = None
     for L in range(BASE_Z + 1, zf + 2):
         img, v = _mosaic(W, H, z, cx, cy, L, raw=True)
-        prev, lv = lv, _fill(img, v, lv)
+        prev, lv = lv, _fill(img, v, lv) * (1 - S) + base * S
     if prev is None:                                    # zf == BASE_Z：BASE_Z と次の段を重ねる
         return lv
     return prev * (1 - w) + lv * w
@@ -179,8 +183,50 @@ def _fill(img, v, base):
         F = F * (1 - g) + est * g
     F = cv2.resize(F, (W, H), interpolation=cv2.INTER_CUBIC)
     m = np.clip((cv2.GaussianBlur(v, (0, 0), 0.01 * max(W, H)) - 0.5) / 0.5, 0, 1)   # 写っている所の内側だけ
-    m = (m * m * (3 - 2 * m))[..., None]
+    m = (m * m * (3 - 2 * m) * np.clip(v, 0, 1))[..., None]                         # タイルの中の黒い行も使わない
     return np.clip(F * (1 - m) + img * m, 0, 1)
+
+
+def _sea_mask(base, s):
+    """BASE_Z の写真の海（青みの強い所）。s：BASE_Z の1pxが出力の何pxか。"""
+    b = cv2.GaussianBlur(base, (0, 0), max(0.5, s))
+    sea = (((b[..., 2] - b[..., 1]) > 0.09) & ((b[..., 2] - b[..., 0]) > 0.22)).astype(np.uint8)
+    k = max(3, int(2 * s) | 1)
+    sea = cv2.morphologyEx(sea, cv2.MORPH_OPEN, np.ones((k, k), np.uint8))
+    sea = cv2.morphologyEx(sea, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    return np.clip(cv2.GaussianBlur(sea.astype(np.float32), (0, 0), 1.5 * s), 0, 1)
+
+
+def _calm_sea(img, z, cx, cy):
+    """低いズームのとき、沖の海を「まわりの海の色を大きくぼかしたもの」にする（段の写真の継ぎ目を見せない）。
+    陸は Natural Earth の海岸線を 1.5km 広げて守る。z が SEA_CALM を越えるにつれて元の写真へ戻す。"""
+    H, W = img.shape[:2]
+    k = 1 - float(C.ease(np.clip((z - SEA_CALM[0]) / (SEA_CALM[1] - SEA_CALM[0]), 0, 1), 'smooth'))
+    if k <= 0:
+        return img
+    q = 4                                               # 陸の形は 1/4 の大きさで作る
+    w4, h4 = W // q, H // q
+    land = np.zeros((h4, w4), np.uint8)
+    sc = 2 ** z / q
+    off = np.array([cx * 2 ** z - W / 2, cy * 2 ** z - H / 2]) / q
+    for _, _, _, rings in polys():
+        for r in rings:
+            p = (r * sc - off).astype(np.int32)
+            if p[:, 0].max() < 0 or p[:, 1].max() < 0 or p[:, 0].min() > w4 or p[:, 1].min() > h4:
+                continue
+            cv2.fillPoly(land, [p], 255)
+    mpp = 40075016.7 * math.cos(math.radians(MAZE[1])) / (256 * 2 ** z) * q
+    d = max(2, int(1500 / mpp))
+    land = cv2.dilate(land, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * d + 1, 2 * d + 1)))
+    sea = np.clip((1 - cv2.GaussianBlur(land.astype(np.float32) / 255, (0, 0), d * 0.5) - 0.02) / 0.98, 0, 1)
+    sea = cv2.resize(sea, (W, H), interpolation=cv2.INTER_LINEAR)
+    sw, sh = max(1, W // 8), max(1, H // 8)
+    sg = 0.06 * max(sw, sh)
+    vs = cv2.resize(sea, (sw, sh), interpolation=cv2.INTER_AREA)
+    ims = cv2.resize(img * sea[..., None], (sw, sh), interpolation=cv2.INTER_AREA)
+    est = cv2.GaussianBlur(ims, (0, 0), sg) / np.maximum(cv2.GaussianBlur(vs, (0, 0), sg), 1e-6)[..., None]
+    m = (sea * k)[..., None]
+    return np.clip(img * (1 - m) + cv2.resize(est, (W, H), interpolation=cv2.INTER_CUBIC) * m, 0, 1)
 
 
 def vector_layer(W, H, z, cx, cy, kochi_a):
@@ -257,7 +303,7 @@ def frames(n, W, H, fmt):
         if pa < 1:
             f = vector_layer(W, H, z, cx / 256 * 256 / 256 * 1.0 * 1, cyw / 256 * 1.0, kochi_a) if False else vector_layer(W, H, z, cx, cyw, kochi_a)
         if pa > 0:
-            p = photo_layer(W, H, z, cx, cyw)
+            p = _calm_sea(photo_layer(W, H, z, cx, cyw), z, cx, cyw)
             p = C.grade(p, con=0.06, sat=1.08)
             f = p if pa >= 1 else f * (1 - pa) + p * pa
         # 道筋：0.47→0.77 で桂浜から伸びて南風へ。0.84→0.90 で消える
