@@ -1,7 +1,7 @@
 """案B の CG の部品：オリジナルの悪役ピクトグラム、画面の端から入る拳、キラーンの光、小さな板（スプライト）の貼り付け。
 
 悪役は core.surfer と同じ描き方（白の太い線＋丸い頭、顔なし）に、小さなマントだけを足したもの。
-既存のキャラクターに似せない：触角・角・特定の色や衣装はなし。拳は白い線画のミトン形（指は描かない）。
+既存のキャラクターに似せない：触角・角・特定の色や衣装はなし。拳は白い線画のマンガの拳（丸い指の山・親指・短い袖口。腕は描かない）。
 """
 import cv2
 import numpy as np
@@ -101,8 +101,9 @@ def put_dot(frame, x, y, r, alpha=1.0):
     return put(frame, fn, x, y, r + 6, alpha=alpha, glow=0.35, glow_px=r * 1.2)
 
 
-# ---------------------------------------------------------------- 拳（白い線画のミトン。腕は画面の外へ）
-FIST_FILL = core.c('D3E6F4')
+# ---------------------------------------------------------------- 拳（白い線画のマンガの拳。腕は描かず、袖口で終わる）
+FIST_FILL = core.c('E4F0F9')
+FIST_SHADE = core.c('B9D3E8')       # 袖口（少しだけ濃く）
 
 
 def _superellipse(a, b, n=2.6, k=72, cx=0.0, cy=0.0):
@@ -119,21 +120,35 @@ def _ellipse(a, b, cx, cy, k=48):
 _FIST = None
 
 
+def _capsule(p0, p1, r, k=20):
+    """p0→p1 の太さ 2r の丸い棒（閉じた輪）。"""
+    p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
+    d = p1 - p0
+    a = np.arctan2(d[1], d[0])
+    t1 = np.linspace(a - np.pi / 2, a + np.pi / 2, k)
+    t0 = np.linspace(a + np.pi / 2, a + 3 * np.pi / 2, k)
+    return np.vstack([p1 + r * np.stack([np.cos(t1), np.sin(t1)], 1), p0 + r * np.stack([np.cos(t0), np.sin(t0)], 1)])
+
+
 def _fist_shapes():
-    """拳の形（ローカル座標、+x が殴る向き、単位 px）。外形の重なりは中で消える（線画の外周だけが残る）。"""
+    """マンガの拳の形（ローカル座標、+x が殴る向き、y は下が +、単位 px）。描く順＝重なりの順（後のものが前）。
+    横から見たグー：手の甲（丸い四角）、前に丸く盛り上がった4本の指（関節の山がはっきり）、
+    その下を横切る親指（爪つき）、手首に短く広がる袖口。腕は描かない（2026-11-07：棒の先のミトンに見えたため）。"""
     global _FIST
     if _FIST is None:
-        body = _superellipse(64, 54, 3.4, 120)
-        knuck = [_ellipse(15, 14.5, 52, yy, 32) for yy in (-38.0, -12.5, 13.0, 38.5)]
-        cuff = np.array([(-104, -58), (-62, -58), (-62, 58), (-104, 58)], float)
-        arm = np.array([(-1300, -98), (-104, -48), (-104, 48), (-1300, 98)], float)
-        _FIST = dict(arm=arm, cuff=cuff, body=body, k0=knuck[0], k1=knuck[1], k2=knuck[2], k3=knuck[3])
+        sh = {}
+        sh['cuff'] = np.array([(-46, -42), (-46, 44), (-78, 58), (-84, 54), (-84, -52), (-78, -56)], float)
+        sh['body'] = _superellipse(46, 50, 3.2, 120, cx=-14, cy=1)      # 手の甲
+        for j, yy in enumerate((-37.5, -12.5, 12.5, 37.5)):              # 曲げた4本の指（前に丸い関節の山）
+            sh['f%d' % j] = _capsule((6, yy), (48 - 3.5 * abs(j - 1.5), yy), 13.4)
+        sh['thumb'] = _capsule((-32, 31), (22, 20), 13.0)                # 下の2本を横切る親指
+        _FIST = sh
     return _FIST
 
 
 def fist(L, x, y, ang, scale=1.0, alpha=1.0, ox=0.0, oy=0.0):
     """(x, y)：拳のまんなか（画面座標）、ang：殴る向き（度、0＝右、負＝上向き）。L の原点は画面の (ox, oy)。
-    横から見たミトン形のグー：前に4本の指のふくらみ、上に親指、手首に袖口。腕は画面の外へ太くなる（手前から来る）。"""
+    各部品を「白い太い輪郭 → 淡い青の塗り」の順に重ねる（前の部品の輪郭が後ろの部品の上に残り、指の境目になる）。"""
     sh = _fist_shapes()
     Rm = _R(ang)
 
@@ -142,27 +157,20 @@ def fist(L, x, y, ang, scale=1.0, alpha=1.0, ox=0.0, oy=0.0):
         return L.p([tuple(q) for q in P])
 
     d = L.draw
-    lw = 4.6 * scale
+    lw = 4.4 * scale
     line = L.col(core.FOAM, alpha)
-    fill = L.col(FIST_FILL, alpha * 0.72)
-    order = list(sh.keys())
-    # 1) 外周：形の線を太く白で
-    for k in order:
-        P = sh[k]
+    fill = L.col(FIST_FILL, alpha)
+    shade = L.col(FIST_SHADE, alpha)
+    for k, P in sh.items():
         d.polygon(T(P), fill=line)
         d.line(T(np.vstack([P, P[:1]])), fill=line, width=L.w(2 * lw), joint='curve')
-    # 2) 中：塗り（重なった内側の線を消す）
-    for k in order:
-        d.polygon(T(sh[k]), fill=fill)
-    # 3) 細部：指の境目、親指、袖口の線
-    det = L.w(lw * 0.8)
-    for yy in (-25.5, 0.0, 25.5):
-        d.line(T([(16, yy + 2), (40, yy), (58, yy - 0.5)]), fill=line, width=det, joint='curve')
-    th = np.linspace(np.pi * 0.05, np.pi * 1.95, 40)
-    thumb = np.stack([4 + 34 * np.cos(th), -33 + 12 * np.sin(th)], 1)
-    thumb = thumb[(thumb[:, 1] > -40) | (thumb[:, 0] > -20)]
-    d.line(T(thumb), fill=line, width=det, joint='curve')
-    d.line(T([(-62, -58), (-62, 58)]), fill=line, width=det)
+        d.polygon(T(P), fill=shade if k == 'cuff' else fill)
+    det = L.w(lw * 0.75)
+    # 親指の爪
+    nail = np.array([(18, 13.5), (27, 14.5), (30, 20), (27, 25.5), (19, 26)], float)
+    d.line(T(nail), fill=line, width=det, joint='curve')
+    # 袖口の折り返しの線
+    d.line(T([(-58, -48), (-58, 50)]), fill=line, width=det)
 
 
 def put_fist(frame, x, y, ang, scale=1.0, alpha=1.0):

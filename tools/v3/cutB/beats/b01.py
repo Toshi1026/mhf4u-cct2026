@@ -1,6 +1,6 @@
 """B01（0.0–3.3秒）「アニメの悪役は、パンチ一発で、空のかなたへ。」
 朝の空と低い水平線、手前の浜。顔のない白い悪役（小さなマント、両手を腰に当てて胸を張る）。
-「パンチ」で画面の左下の端から白い線画の拳が入り、「チ」で当たる（短い白い線が数本、すぐ消える）。
+「パンチ」で画面の左下の端から白い線画のマンガの拳（丸い指の山・親指・短い袖口。腕は描かず、うしろに速さの線）が入り、「チ」で当たる（短い白い線が数本、すぐ消える）。
 悪役は右上へ弧を描いて飛び、回りながら小さくなって（うしろに速さの線）点になり、「カナタ」でキラーンと1回光る。
 全体はゆっくり DOT へ押し込む（02 がそのまま続ける）。文字：「パンチ一発で」（パ）、「空のかなたへ」（ソ）。"""
 import numpy as np
@@ -9,7 +9,7 @@ from cutB.beats import _useA  # noqa: F401
 import core
 import timeline_b as timeline
 from core import W, H
-from beats import _mapui as U
+from beats import _mapui as U, _geo as G
 from cutB.beats import _art as A, _sky as S
 
 FS = 1.15
@@ -101,6 +101,23 @@ def impact(f, k):
     return A.put(f, fn, cx, cy, R, s=3, alpha=a * 0.9)
 
 
+def speed_lines(f, p, q):
+    """拳のうしろ（袖口の後ろ）に3本の短い白い線。q：前のフレームの位置（None なら画面の外から来たとみなす）。"""
+    d = np.array([np.cos(np.deg2rad(DIR)), np.sin(np.deg2rad(DIR))])
+    sp = 60.0 if q is None else float(np.dot(np.asarray(p) - q, d))        # 前へ進んでいるときだけ（引くときは出さない）
+    if sp < 12:
+        return f
+    a = min(1.0, (sp - 12) / 30.0)
+    n = np.array([-d[1], d[0]])
+    L = G.Lines()
+    for off, k in ((-34, 0.75), (0, 1.0), (34, 0.75)):
+        a0 = np.asarray(p) - d * (96 * FS) + n * off * FS
+        a1 = a0 - d * min(240.0, sp * 2.2) * k
+        L.poly(np.array([a1, a0]), 3.2, 255 * 0.55 * a)
+    m = L.done()[..., None]
+    return f * (1 - m) + core.FOAM * m
+
+
 def texts():
     return (U.Patch([dict(text='パンチ一発で', x=W / 2, y=470, size=48, weight='Medium', track=0.10)]),
             U.Patch([dict(text='空のかなたへ', x=W / 2, y=600, size=100, weight='Bold', hl='空のかなたへ')]))
@@ -147,9 +164,10 @@ def render(beat, ctx):
             else:
                 tw = 0.85 + 0.15 * np.cos((i - T['glint']) * 0.35)
                 f = A.put_dot(f, S.DOT[0], S.DOT[1], 2.3, alpha=tw)
-        # 拳
+        # 拳（腕は描かない。速く動いているあいだは袖口のうしろに短い速さの線）
         p = fist_pos(i, T)
         if p is not None:
+            f = speed_lines(f, p, fist_pos(i - 1, T))
             f = A.put_fist(f, p[0], p[1], DIR, FS)
         f = impact(f, i - T['hit'])
         # キラーン

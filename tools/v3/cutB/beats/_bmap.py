@@ -1,10 +1,13 @@
-"""案B の 03（桂浜から13km）・04（メーターの背景）・T（着水のしぶき）で共有する、土佐湾の線画まわり。
+"""案B の 03（桂浜から10km）・04（メーターの背景）・T（着水のしぶき）で共有する、土佐湾の線画まわり。
 
 座標は案A と同じ「地図の px」（beats/_tosa.to_screen：4.6 px/km、b11 の 0 フレーム目＝画面と一致）。
 - 海岸線：Natural Earth 50m を _tosa と同じく Chaikin で丸めたベクトル（03 は寄るので、マスクではなく線で描く）
 - 沖の線：b11 と同じ等距離線（_tosa.STEPS、うすく・少なく）
 - 桂浜：33.4971N 133.5745E を地図の海岸線へ寄せた点（NE 50m は 1km ほどずれるため）
-- 着水点：b11 が降りていく河口（b11._mouth）の、海の側へ約 0.65km（地名は 08 まで出さない）
+- 着水点：MAZE の前の海（33.455N 133.478E。MAZE＝33.4590N 133.4775E の約 0.45km 南、浜から約 0.3km 沖）を
+  地図の海岸線へ寄せ、海の側へ 0.3km 出した点。桂浜の点からの距離は約 10.1km（試算の R＝10.10km）。
+  b11 が降りていく本当の仁淀川の河口（b11._mouth）は、この点の約 0.45km 東（地名は 08 まで出さない）。
+  2026-11-07 訂正：以前は 33.457N 133.440E（MAZE の約 3.5km 西）を行き先にしていた（13km 版）。
 カメラは真上から。screen = (P − ctr)·z + ANCHOR。
 """
 import numpy as np
@@ -16,7 +19,8 @@ from beats import _geo as G, _tosa, b10, b11
 from beats import _mapui as U
 
 KAT_LL = (33.4971, 133.5745)
-DEST_LL = (33.457, 133.440)               # 試算の行き先（新居海岸の沖）。地図では河口の前の海の点を使う
+DEST_LL = (33.455, 133.478)               # 試算の行き先＝MAZE の前の海（2026-11-07 訂正。旧 33.457N 133.440E は 3.5km 西）
+DEST_OFF_KM = 0.30                         # 地図の海岸線から沖へ（実際の行き先も浜から約 0.3km）
 ANCHOR = np.array([540.0, 760.0])         # 画面のこの点に ctr を置く
 
 _S = {}
@@ -54,7 +58,11 @@ def setup():
     nrm = np.array([tang[1], -tang[0]])
     if nrm[1] < 0:
         nrm = -nrm
-    dest = M + nrm * 3.0                                   # 河口の前の海（約 0.65km 沖）
+    d0, dt = _snap(b11._world(*DEST_LL), [np.asarray(P, np.float64) for P in raw])
+    dn = np.array([dt[1], -dt[0]])
+    if dn[1] < 0:
+        dn = -dn
+    dest = d0 + dn * DEST_OFF_KM * _tosa.PX_KM            # MAZE の前の海
     offs = [(k, P) for k, P in b11._offsets()]
     _S.update(rings=rings, kat=kat, dest=dest, M=M, nrm=nrm, offs=offs, bg=b10._background(),
               km=float(np.hypot(*(dest - kat)) / _tosa.PX_KM))
@@ -62,18 +70,31 @@ def setup():
 
 
 # ---------------------------------------------------------------- カメラ（03 の 0 フレーム目からの通しの時刻 t）
-N03 = 116
-Z0, Z1 = 1.30, 4.80
+Z0 = 1.30
+ARC_FRAC = 0.62                       # 寄りきったとき、放物線（桂浜→着水点）の横幅を画面の幅のこの割合に（2026-11-07：小さく見えたので 0.24→0.62）
+
+
+def n03():
+    """03 のフレーム数（04 の背景はこの続きの時刻から）。"""
+    import timeline_b
+    return next(b for b in timeline_b.load() if b['key'] == '03')['n']
+
+
+def z1():
+    S = setup()
+    return ARC_FRAC * W / abs(float(S['dest'][0] - S['kat'][0]))
 
 
 def cam(t):
-    """(ctr, z)。0→約 80 フレームで寄り、その後はごくゆっくり流れ続ける（04 の背景も同じ関数で続ける）。"""
+    """(ctr, z)。0→約 84 フレームで寄り、その後はごくゆっくり流れ続ける（04 の背景も同じ関数で続ける）。"""
     S = setup()
-    q = (S['kat'] + S['dest']) / 2 + np.array([0.0, -8.0])
+    ch = S['dest'] - S['kat']
+    q = (S['kat'] + S['dest']) / 2 + np.array([0.0, -0.125 * float(np.hypot(*ch))])   # 起こした弧の高さの半分だけ上
     c0 = np.array([560.0, 905.0])                          # はじめは土佐湾全体（室戸〜足摺）が入る引き
+    Z1 = z1()
     k = core.ease(t / 84.0, 'inout')
-    z = Z0 * (Z1 / Z0) ** k + 0.0011 * max(0.0, t - 84)
-    ctr = c0 + (q - c0) * k + np.array([-0.020, 0.006]) * max(0.0, t - 84)
+    z = Z0 * (Z1 / Z0) ** k * (1 + 0.00025 * max(0.0, t - 84))
+    ctr = c0 + (q - c0) * k + np.array([-0.0013, 0.0004]) * max(0.0, t - 84)
     return ctr, z
 
 
@@ -149,8 +170,18 @@ def kat_scr(ctr, z):
 
 
 # ---------------------------------------------------------------- 縮尺
-def scale_bar(f, z, alpha=1.0, km=5, x1=1000.0, y=372.0):
+def scale_bar(f, z, alpha=1.0, km=None, x1=1000.0, y=372.0):
+    """縮尺。km=None のときは寄りに合わせて 5km → 2km に切り替える（右端をそろえて 8 フレームほどで溶かす。棒が長くなりすぎないように）。"""
     if alpha <= 0.001:
+        return f
+    if km is None:
+        L5 = 5 * _tosa.PX_KM * z
+        w2 = float(np.clip((L5 - 230.0) / 70.0, 0, 1))
+        w2 = w2 * w2 * (3 - 2 * w2)
+        if w2 < 1:
+            f = scale_bar(f, z, alpha * (1 - w2), 5, x1, y)
+        if w2 > 0:
+            f = scale_bar(f, z, alpha * w2, 2, x1, y)
         return f
     Lb = G.Lines()
     ln = km * _tosa.PX_KM * z

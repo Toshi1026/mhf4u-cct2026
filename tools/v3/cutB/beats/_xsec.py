@@ -1,5 +1,6 @@
 """06・07 の舞台：横から見た断面（案A と同じ core.xs_background の空と水）。左に桂浜の陸、そこから右へ放物線。
-縦の縮尺は実際の比（富士山 3,776m と最高点 3,300m が同じ縮尺）。横は 13.3km を画面の幅に縮めた（縦を約2.2倍に強調）。"""
+縦の縮尺は実際の比（富士山 3,776m と最高点 2,500m が同じ縮尺）。横は 10.1km を画面の幅に縮めた（縦を約1.8倍に強調）。
+2026-11-07 訂正：10km 版（最高点 h＝R/4＝2,525m。旧 13.3km・3,300m）。"""
 import cv2
 import numpy as np
 
@@ -10,8 +11,8 @@ from cutB.beats import _art as A
 
 X0, X1 = 150.0, 980.0                # 桂浜（打ち出し）→ 着水
 PXM = 550.0 / 3776                   # 縦：1m あたりの px（富士山の頂上が y=600）
-HAPEX = 3300 * PXM
-FUJI_X = 700.0
+HAPEX = 2525 * PXM                   # 試算の最高点（表示は「約2,500m」）
+FUJI_X = 752.0                       # 頂点（x≈565）と重ならないよう右へ（2026-11-07：頂点が低くなったため 700→752、すそも少し細く）
 VS = 1.55                            # 飛んでいる悪役の大きさ
 
 
@@ -50,13 +51,13 @@ def fuji_outline():
     """富士山の輪郭（左のすそ → 頂上の平ら → 右のすそ）。高さは 3,776m を同じ縮尺で。"""
     hp = 3776 * PXM
     hw = np.linspace(0, 1, 60)
-    half = 32 + 285 * (1 - hw) ** 1.45         # 高さ hw（0..1）での半分の幅
+    half = 30 + 172 * (1 - hw) ** 1.5          # 高さ hw（0..1）での半分の幅（右の 1,000m・2,000m の数字にかからない細さ）
     ys = WL - hp * hw
     left = np.stack([FUJI_X - half, ys], 1)
     right = np.stack([FUJI_X + half, ys], 1)[::-1]
     # 頂上は少しだけでこぼこ
-    top = np.array([[FUJI_X - 32, WL - hp], [FUJI_X - 14, WL - hp - 2.5], [FUJI_X + 2, WL - hp + 2],
-                    [FUJI_X + 16, WL - hp - 1.5], [FUJI_X + 32, WL - hp]])
+    top = np.array([[FUJI_X - 30, WL - hp], [FUJI_X - 13, WL - hp - 2.5], [FUJI_X + 2, WL - hp + 2],
+                    [FUJI_X + 15, WL - hp - 1.5], [FUJI_X + 30, WL - hp]])
     return np.vstack([left, top[1:-1], right])
 
 
@@ -98,7 +99,7 @@ def labels():
                    dict(text='2,000m', x=1010, y=y_of(2000) - 10, size=28, weight='Medium', anchor='rs', alpha=0.7)])
     kat = U.Patch([dict(text='桂浜', x=X0 - 10, y=WL + 62, size=32, weight='Medium', track=0.1)])
     fuji = U.Patch([dict(text='富士山 3,776m', x=FUJI_X, y=y_of(3776) - 22, size=28, weight='Medium', alpha=0.85)])
-    apex = U.Patch([dict(text='3,300m', x=1010, y=APEX[1] - 12, size=30, weight='Bold', anchor='rs')])
+    apex = U.Patch([dict(text='2,500m', x=1010, y=APEX[1] - 12, size=30, weight='Bold', anchor='rs')])
     _C['lab'] = dict(grid=lab, kat=kat, fuji=fuji, apex=apex)
     return _C['lab']
 

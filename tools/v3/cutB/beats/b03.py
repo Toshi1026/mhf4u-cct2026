@@ -1,10 +1,12 @@
-"""案B 03（約3.9秒）「たとえば、桂浜から殴って、13キロ先まで飛ばすなら。」
+"""案B 03（約3.7秒）「たとえば、桂浜から殴って、じゅっキロ先まで飛ばすなら。」
 
 土佐湾の線画（真上から・沖の線はうすく少なく）。土佐湾全体が入る引きから、桂浜のあたりへゆっくり寄る。
  カ（かつらはま）：桂浜に白い点と「桂浜」、下に「桂浜から」。
- ナ（なぐって）→キ（じゅうさんキロ）：桂浜から西へ、海岸に沿って放物線がのびる（地面の破線＋少し起こした白い弧）。
-   カウンター「0km先へ」→「13km先へ」（13km を強調）が弧の伸びと同じ速さで数える。行き先には点も名前も出さない。
-右上に小さな縮尺（5km、寄りに合わせて長さが変わる）。最後まで線は残し、04 は同じ地図を暗くして始まる。
+ ナ（なぐって）→キ（じゅっキロ）：桂浜から西へ、海岸に沿って放物線がのびる（起こした白い破線の弧）。
+   カウンター「0km先へ」→「10km先へ」（10km を強調）が弧の伸びと同じ速さで数える。行き先には点も名前も出さない。
+寄りきると弧の横幅は画面の幅の約 62%（_bmap.ARC_FRAC）。
+右上に小さな縮尺（寄りに合わせて長さが変わり、途中で 5km → 2km に溶ける）。最後まで線は残し、04 は同じ地図を暗くして始まる。
+2026-11-07 訂正：行き先を MAZE の前の海に（13km → 10km）。
 """
 import numpy as np
 
@@ -17,6 +19,7 @@ from beats import _geo as G
 from cutB.beats import _bmap as B
 
 Y_SUB, Y_BIG = 1046, 1178
+KM = '10'
 
 
 def overlay_static(f, t, alpha=1.0, track_u=1.0, head=False, dot_a=1.0, label_a=1.0):
@@ -55,11 +58,11 @@ def map_frame(t, a_map=1.0):
 def render(beat, ctx):
     n = beat['n']
     mo = beat['moras']
-    assert mo[4][0] == 'カ' and mo[11][0] == 'ナ' and mo[15][0] == 'ジュ' and mo[19][0] == 'キ', mo
+    assert mo[4][0] == 'カ' and mo[11][0] == 'ナ' and mo[15][0] == 'ジュ' and mo[17][0] == 'キ', mo   # ジュッキロ の キ
     mf = lambda k: timeline.mora_frame(beat, k)
-    f_ka, f_na, f_ki = mf(4), mf(11), mf(19)
+    f_ka, f_na, f_ki = mf(4), mf(11), mf(17)
     sub = U.Patch([dict(text='桂浜から', x=W / 2, y=Y_SUB, size=46, weight='Medium', track=0.08)])
-    cnt = B.HCounter('13', W / 2, Y_BIG, hl_suffix='km', digit_size=108, side_size=96, prefix='', suffix='km先へ')
+    cnt = B.HCounter(KM, W / 2, Y_BIG, hl_suffix='km', digit_size=108, side_size=96, prefix='', suffix='km先へ')
     g0, g1 = f_na - 2, f_ki                        # 弧が伸びる区間
     for i in range(n):
         a_map = core.ease((i + 1) / 9.0)
@@ -77,6 +80,6 @@ def render(beat, ctx):
             f = U.scrim(f, Y_SUB - 60, Y_BIG + 10, strength=sa, feather=150)
         f = sub.put(f, lab_a)
         if i >= g0 + 1:
-            val = min(13, int(np.floor(13.3 * u + 1e-6)))
+            val = min(int(KM), int(np.floor(10.1 * u + 1e-6)))       # 試算の R＝10.10km
             f = cnt.put(f, str(val), core.ease((i - g0) / 4.0))
         yield np.clip(f, 0, 1).astype(np.float32)

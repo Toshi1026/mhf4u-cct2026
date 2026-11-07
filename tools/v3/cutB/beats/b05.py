@@ -1,8 +1,9 @@
-"""B05（12.1–16.3秒）「パンチは、約220トン。ゾウ40頭分。」
-濃紺の無地（中央だけごく弱く深い海の色）。上に「パンチの力」、その下に大きなカウンター「約220トン」
-（220 を強調。ヤで出て数えはじめ、トンの「ン」で 220 に止まる）。注「体重60kg・パンチが当たる時間0.01秒・空気抵抗なし（試算）」。
-「ゾウ、よんじゅっとうぶん」：淡い青の塗りのアフリカゾウのシルエット 40 頭（8×5）が、上の列から順にぽんぽんと並ぶ。
-「ゾウ 約40頭分」と注「アフリカゾウ（大人のオス）約5.5〜6t として」。
+"""B05（約4.3秒）「パンチは、やく、ひゃくきゅうじゅっトン。ゾウ、さんじゅうごとうぶん。」
+濃紺の無地（中央だけごく弱く深い海の色）。上に「パンチの力」、その下に大きなカウンター「約190トン」
+（190 を強調。ヤで出て数えはじめ、トンの「ン」で 190 に止まる）。注「体重60kg・パンチが当たる時間0.01秒・空気抵抗なし（試算）」。
+「ゾウ、さんじゅうごとうぶん」：淡い青の塗りのアフリカゾウのシルエット 35 頭（7×5）が、上の列から順にぽんぽんと並ぶ。
+「ゾウ 約35頭分」と注「アフリカゾウ（大人のオス）約5.5t として」（193 tf ÷ 5.5 t ≈ 35）。
+2026-11-07 訂正：10km 版（F＝60kg×315m/s÷0.01s＝1.89×10⁶N＝約193トン重）。旧「約220トン・ゾウ40頭分」。
 最初の 6 フレーム：04 の暗い地図からのズームのぼかしを 0 へ。最後の 6 フレーム：上へ振る縦の whip（06 が同じ向きで受ける）。"""
 import cv2
 import numpy as np
@@ -13,8 +14,8 @@ import timeline_b as timeline
 from core import W, H
 from beats import _mapui as U
 
-COLS, ROWS = 8, 5
-DX, Y_ROW0, DY = 110.0, 790.0, 75.0
+COLS, ROWS = 7, 5
+DX, Y_ROW0, DY = 118.0, 790.0, 75.0
 ESC = 0.82                       # ゾウの大きさ（1単位＝0.92px、全長約 100 単位）
 EL_RGB = core.SKY
 WHIP_OUT = 6
@@ -134,9 +135,9 @@ def render(beat, ctx):
     bg = background()
     el, ax, ay = elephant_sprite()
     head = U.Patch([dict(text='パンチの力', x=W / 2, y=410, size=48, weight='Medium', track=0.12)])
-    ctr = U.Counter('220', W / 2, 588, digit_size=150, side_size=96, prefix='約', suffix='トン')
-    sub = U.Patch([dict(text='ゾウ 約40頭分', x=W / 2, y=686, size=48, weight='Medium', track=0.08)])
-    note1 = U.Patch([dict(text='アフリカゾウ（大人のオス）約5.5〜6t として', x=W / 2, y=1162, size=28, weight='Medium',
+    ctr = U.Counter('190', W / 2, 588, digit_size=150, side_size=96, prefix='約', suffix='トン')
+    sub = U.Patch([dict(text='ゾウ 約35頭分', x=W / 2, y=686, size=48, weight='Medium', track=0.08)])
+    note1 = U.Patch([dict(text='アフリカゾウ（大人のオス）約5.5t として', x=W / 2, y=1162, size=28, weight='Medium',
                           alpha=0.9, track=0.04)])
     note2 = U.Patch([dict(text='体重60kg・パンチが当たる時間0.01秒・空気抵抗なし（試算）', x=W / 2, y=1206, size=28,
                           weight='Medium', alpha=0.8, track=0.02)])
@@ -149,7 +150,7 @@ def render(beat, ctx):
         f = head.put(f, core.ease((i - f_pa + 2) / 6.0))
         if i >= f_ya - 1:
             a = core.ease((i - f_ya + 2) / 5.0)
-            v = 220 * core.ease((i - f_ya) / float(f_n - f_ya), 'out')
+            v = 190 * core.ease((i - f_ya) / float(f_n - f_ya), 'out')
             f = ctr.put(f, str(int(round(v))), a)
             f = note2.put(f, core.ease((i - f_ya - 2) / 8.0))
         if i >= f_zo - 1:

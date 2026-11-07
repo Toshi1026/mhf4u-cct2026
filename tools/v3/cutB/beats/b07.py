@@ -1,7 +1,9 @@
-"""B07（20.9–22.6秒）「そして、52秒後。」
+"""B07（約1.8秒）「そして、よんじゅうごびょうご。」
 06 の続き（同じ断面）。06 の文字と富士山が消え、点だった悪役が元の大きさに戻りながら、放物線の右半分を回りながら落ちていく
-（だんだん速く）。秒のカウンター（全体を強調）はソで「26秒後」（頂点＝飛んでいる時間の半分）で出て、悪役の横の進みと同じに数え、
-「ゴジュウニ」のニの 3 フレーム後、水面に着くところで「52秒後」に止まる。悪役は水面で消え、着水（小さなしぶき）は T で土佐湾の線画の上に見せる。
+（だんだん速く）。秒のカウンター（全体を強調）はソで「23秒後」（頂点＝飛んでいる時間 45.4 秒の半分）で出て、悪役の横の進みと同じに数え、
+「ヨンジュウゴ」のゴの 3 フレーム後（「ゴビョオゴ」の頭）、水面に着くところで「45秒後」に止まる。
+2026-11-07 訂正：10km 版（t＝2v·sin45°/g＝45.4 秒）。旧「52秒後」（26→52）。
+悪役は水面で消え、着水（小さなしぶき）は T で土佐湾の線画の上に見せる。
 着水の次のフレームから最後まで：着水する所へのズームのぼかし、最後の 11 フレームで濃紺（案A b10 と同じ背景）へ暗くし、土佐湾の線画をごくうすく出す（T は線画から）。"""
 import numpy as np
 
@@ -13,7 +15,8 @@ from beats import _mapui as U
 from beats import _tosa, b10
 from cutB.beats import _art as A, _xsec as X, b06
 
-LAND_AFTER_NI = 3                             # 着水（＝52秒）はナレーションの「ニ」の 3 フレーム後
+LAND_AFTER_GO = 3                             # 着水（＝45秒）はナレーションの「ヨンジュウゴ」のゴの 3 フレーム後
+SECS = 45.4                                   # 飛んでいる時間（試算）。表示は 23 → 45
 DARKEN = 11                                   # 濃紺へ暗くするのは最後の 11 フレーム（1フレームの明るさの差を小さく）
 
 
@@ -48,8 +51,8 @@ class SecCounter:
 def render(beat, ctx):
     n = beat['n']
     mo = beat['moras']
-    assert mo[0][0] == 'ソ' and mo[6][0] == 'ニ', mo
-    f_so, f_ni = timeline.mora_frame(beat, 0), timeline.mora_frame(beat, 6)
+    assert mo[0][0] == 'ソ' and mo[7][0] == 'ゴ' and mo[8][0] == 'ビョ', mo    # ソシテ ヨンジュウ「ゴ」ビョオゴ
+    f_so, f_go = timeline.mora_frame(beat, 0), timeline.mora_frame(beat, 7)
     b6 = next(b for b in timeline.load() if b['key'] == '06')
     T6 = b06.timing(b6)
     n6 = b6['n']
@@ -58,7 +61,7 @@ def render(beat, ctx):
     ctr = SecCounter(W / 2, 450)
     nav = b10._background()
     lines = _tosa.contours()
-    f_land = min(f_ni + LAND_AFTER_NI, n - DARKEN - 2)   # 水面に着くフレーム（52 秒＝着水。ニのすぐ後）
+    f_land = min(f_go + LAND_AFTER_GO, n - DARKEN - 2)   # 水面に着くフレーム（45 秒＝着水。ゴのすぐ後）
     out = n - (f_land + 1)                       # 着水の次のフレームから最後まで：着水点へのズームのぼかし
     for i in range(n):
         gi = n6 + i                              # 06 の頭からの通し番号
@@ -66,7 +69,7 @@ def render(beat, ctx):
         f = b06.scene(gi, T6, fuji_a=1.0 - core.ease((i + 1) / 9.0))   # 富士山は落ちる弧と重なるので、06 の文字と一緒に消す
         # 落ちる位置
         tau = np.clip((i - 2) / float(f_land - 2), 0, 1)
-        u = 0.5 + 0.5 * tau ** 1.7               # 横の進み＝時間（空気抵抗なしなら水平の速さは一定）なので、秒＝52·u
+        u = 0.5 + 0.5 * tau ** 1.7               # 横の進み＝時間（空気抵抗なしなら水平の速さは一定）なので、秒＝45.4·u
         rgba, x0, y0 = X.trail_layer(u, ghost=1.0 - core.ease(i / 30.0) * 0.4)
         f = U.paste(f, rgba, x0, y0)
         # 頂点の印（少しうすく）・見上げる点線（消す）
@@ -97,7 +100,7 @@ def render(beat, ctx):
         tout = 1 - core.ease((jd + 1) / 6.0) if jd >= 0 else 1.0
         if i >= f_so:
             a = core.ease((i - f_so + 1) / 5.0)
-            f = ctr.put(f, round(52 * u), a * tout)      # 頂点＝26秒後 から、着水＝52秒後 まで
+            f = ctr.put(f, min(45, int(SECS * u + 0.5)), a * tout)   # 頂点＝23秒後 から、着水＝45秒後 まで
         # 最後：着水点へのズームのぼかし＋濃紺へ＋線画をうすく
         if j >= 0:
             q = (j + 1) / out
