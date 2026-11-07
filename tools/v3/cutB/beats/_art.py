@@ -49,15 +49,21 @@ def put(frame, draw_fn, x, y, R, s=4, alpha=1.0, shadow=0.0, shadow_px=2.0, glow
 
 
 # ---------------------------------------------------------------- 悪役（顔のない白いピクトグラム＋小さなマント）
-def villain(L, x, y, scale=1.0, ang=0.0, pose='stand', t=0.0, rgb=None, alpha=1.0, squash=1.0):
+def villain(L, x, y, scale=1.0, ang=0.0, pose='stand', t=0.0, rgb=None, alpha=1.0, squash=1.0, M2=None,
+            cape_ang=None):
     """(x, y) は胴のまんなか。scale=1 で全長約 32px（足 +16、頭のてっぺん -16）。ang は度（時計回り）。
     pose='stand'：両手を腰に当てて胸を張る（悪役のお約束のポーズ）／'fly'：手足を広げて飛ばされる。
-    t：マントのはためき（秒）。squash：殴られた瞬間の横のつぶれ（1＝なし）。"""
+    t：マントのはためき（秒）。squash：殴られた瞬間の横のつぶれ（1＝なし）。
+    M2（任意の 2×2、画面の向き）：回したあとに (x, y) を中心にかける変形（つぶれ・伸び。_motion.squash_matrix）。
+    cape_ang（任意、度、0＝右・90＝下）：'fly' のマントを体の回転と関係なく、画面のこの向きへたなびかせる。
+    どちらも None なら今までと同じ絵。"""
     rgb = core.FOAM if rgb is None else rgb
     col = L.col(rgb, alpha)
     ccol = L.col(CAPE, alpha * 0.92)               # マントは少しだけ透かして、体と見分けられるように
     Rm = _R(ang)
     S = np.array([[squash, 0], [0, 1 / max(squash, 0.6) ** 0.5]])
+    if M2 is not None:
+        Rm = np.asarray(M2, float) @ Rm
 
     def T(pts):
         return L.p([tuple(Rm @ (S @ np.array(q, float)) * scale + (x, y)) for q in pts])
@@ -77,21 +83,46 @@ def villain(L, x, y, scale=1.0, ang=0.0, pose='stand', t=0.0, rgb=None, alpha=1.
         hx, hy = Rm @ (S @ np.array([0.0, -12.2])) * scale + (x, y)
     else:
         # マント：体の下側へ長くたなびく
-        d.polygon(T([(-2.6, -7.6), (2.6, -7.6), (8.0 + fl, 9.0), (6.0 + fl, 18.0), (2.0 + fl * 0.6, 15.5),
-                     (-2.0 + fl * 0.4, 19.0), (-6.5 + fl * 0.3, 12.0)]), fill=ccol)
+        cape = [(-2.6, -7.6), (2.6, -7.6), (8.0 + fl, 9.0), (6.0 + fl, 18.0), (2.0 + fl * 0.6, 15.5),
+                (-2.0 + fl * 0.4, 19.0), (-6.5 + fl * 0.3, 12.0)]
+        if cape_ang is None:
+            d.polygon(T(cape), fill=ccol)
+        else:
+            # 肩の点は体について回り、マントの向きだけ画面の cape_ang へ（体の +y＝マントの軸）
+            sh = Rm @ (S @ np.array([0.0, -7.6])) * scale + (x, y)
+            Rc = (np.asarray(M2, float) if M2 is not None else np.eye(2)) @ _R(cape_ang - 90.0)
+            d.polygon(L.p([tuple(sh + Rc @ (np.array(q) - (0.0, -7.6)) * scale) for q in cape]), fill=ccol)
         d.line(T([(-7.0, 14.5), (0, 4), (6.5, 15.0)]), fill=col, width=lw(2.7), joint='curve')
         d.line(T([(0, 4.5), (0, -7.5)]), fill=col, width=lw(3.4))
         d.line(T([(-9.5, -12.5), (0, -6.0), (9.5, -12.0)]), fill=col, width=lw(2.2), joint='curve')
         hx, hy = Rm @ (S @ np.array([0.0, -12.2])) * scale + (x, y)
     rr = 3.7 * scale
-    d.ellipse(L.box(hx - rr, hy - rr, hx + rr, hy + rr), fill=col)
+    if M2 is None:
+        d.ellipse(L.box(hx - rr, hy - rr, hx + rr, hy + rr), fill=col)
+    else:                                         # つぶれ・伸びに合わせて頭も楕円に
+        th = np.linspace(0, 2 * np.pi, 28, endpoint=False)
+        P = (np.asarray(M2, float) @ np.stack([np.cos(th), np.sin(th)]) * rr).T + (hx, hy)
+        d.polygon(L.p([tuple(p) for p in P]), fill=col)
 
 
-def put_villain(frame, x, y, scale, ang=0.0, pose='stand', t=0.0, alpha=1.0, squash=1.0, shadow=0.35):
+def villain_rgba(x, y, scale, ang=0.0, pose='fly', t=0.0, squash=1.0, M2=None, cape_ang=None, s=4):
+    """悪役だけの小さな板 (rgba, x0, y0)（ストレートアルファ）。_motion.subframe / put_rgba で使う。"""
+    ext = 1.0 if M2 is None else max(1.0, float(np.abs(np.linalg.eigvals(np.asarray(M2, float))).max()))
+    R = int(np.ceil((24 * scale + 6) * ext + 4))
+    L = core.SS(s=s, w=2 * R, h=2 * R)
+    fx, fy = x - np.floor(x), y - np.floor(y)
+    villain(L, R + fx, R + fy, scale, ang, pose, t, alpha=1.0, squash=squash, M2=M2, cape_ang=cape_ang)
+    return L.done(), int(np.floor(x)) - R, int(np.floor(y)) - R
+
+
+def put_villain(frame, x, y, scale, ang=0.0, pose='stand', t=0.0, alpha=1.0, squash=1.0, shadow=0.35, M2=None,
+                cape_ang=None):
     if scale * 34 < 5:                          # ここまで小さいと形は読めない：点にする
         return put_dot(frame, x, y, max(1.6, scale * 8), alpha)
-    R = 24 * scale + 6
-    return put(frame, lambda L, cx, cy: villain(L, cx, cy, scale, ang, pose, t, alpha=1.0, squash=squash),
+    ext = 1.0 if M2 is None else max(1.0, float(np.abs(np.linalg.eigvals(np.asarray(M2, float))).max()))
+    R = (24 * scale + 6) * ext
+    return put(frame, lambda L, cx, cy: villain(L, cx, cy, scale, ang, pose, t, alpha=1.0, squash=squash, M2=M2,
+                                                cape_ang=cape_ang),
                x, y, R, alpha=alpha, shadow=shadow, shadow_px=max(1.0, 1.1 * scale))
 
 
@@ -239,6 +270,52 @@ def glint_env(k, rise=6, hold=3, decay=16.0):
     if k < rise + hold:
         return 1.0
     return float(np.exp(-(k - rise - hold) / decay))
+
+
+# ---------------------------------------------------------------- キラーン 2026-11（動きの改善版）
+GLINT_PEAK = 5          # 光りはじめから一番大きくなるまでのフレーム（効果音の頭をここに合わせる）
+
+
+def glint_env2(k):
+    """光の大きさ。back_out（行き過ぎ 1.15）で 9 フレームかけて出て k=5 で最大、3 フレームそのまま、τ=14 で消える。"""
+    if k < 0:
+        return 0.0
+    if k <= 9:
+        sb = 2.2                                  # 行き過ぎ 1.15 の back_out（最大は q≈0.54）
+        u = k / 9.0 - 1
+        return float(max(0.0, 1 + (sb + 1) * u ** 3 + sb * u ** 2))
+    if k < 12:
+        return 1.0
+    return float(np.exp(-(k - 12) / 14.0))
+
+
+def put_glint_fx(frame, x, y, k, r=46.0, alpha=1.0, rot=18.0):
+    """キラーン（k＝光りはじめからのフレーム）：主の星（0→rot 度回る）＋小さな星 2 つ（遅れて出て 8 フレームで消える）
+    ＋横の細い光の筋（6 フレーム）。点滅しない（明るさは 1 回だけ上がって下がる）。"""
+    g = glint_env2(k)
+    if g <= 0.01 and k > 20:
+        return frame
+    life = float(np.clip(k / 40.0, 0, 1))
+    ang = rot * (1 - (1 - life) ** 2)
+    # 横の光の筋（主の星の後ろ）
+    if 0 <= k < 6:
+        q = k / 6.0
+        sa = alpha * (1 - q) ** 1.5 * min(1.0, (k + 1) / 2.0)
+        ln = 2.2 * r * g * (0.7 + 0.3 * q)
+
+        def streak(L, cx, cy):
+            L.draw.line(L.p([(cx - ln, cy), (cx + ln, cy)]), fill=L.col(core.FOAM, 0.9), width=L.w(1.5))
+        frame = put(frame, streak, x, y, ln + 6, s=3, alpha=sa)
+    if g > 0.01:
+        frame = put_glint(frame, x, y, r * g, ang=ang, alpha=alpha * min(1.0, g * 1.4))
+    for (ox, oy, dl) in ((22, -14, 3), (-22, -14, 5)):
+        kk = k - dl
+        if 0 <= kk < 8:
+            q = kk / 8.0
+            gm = (1 - q) ** 1.4 * min(1.0, (kk + 1) / 2.0)
+            frame = put_glint(frame, x + ox * r / 46.0, y + oy * r / 46.0, r * 0.3 * (0.6 + 0.4 * min(1, kk / 2.0)),
+                              ang=ang * 1.5, alpha=alpha * gm)
+    return frame
 
 
 # ---------------------------------------------------------------- 線（点線・折れ線）

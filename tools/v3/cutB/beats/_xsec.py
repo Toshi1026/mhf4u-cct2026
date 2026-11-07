@@ -126,6 +126,42 @@ def fuji_layer(a):
     return r
 
 
+def fuji_layer2(stroke, fill):
+    """富士山（2026-11）：輪郭は stroke（0..1）ですそから頂上へ描かれ、塗りは fill（0..1）で遅れてうすく入る。(rgba, x0, y0)。"""
+    key = (round(stroke, 2), round(fill, 2))
+    cc = _C.setdefault('fj2', {})
+    if key in cc:
+        return cc[key]
+    P = fuji_outline()
+    x0, y0 = int(P[:, 0].min()) - 8, int(P[:, 1].min()) - 8
+    x1, y1 = min(W, int(P[:, 0].max()) + 8), int(WL) + 4
+    L = core.SS(s=3, w=x1 - x0, h=y1 - y0)
+    Q = P - (x0, y0)
+    if fill > 0.005:
+        L.draw.polygon(L.p([tuple(p) for p in Q]), fill=L.col(core.FOAM, 0.08 * fill))
+    n = len(Q)
+    # 輪郭の長さに沿って描く（左右同時。先は小数の分だけ線を伸ばす）
+    half = Q[:(n + 1) // 2 + 1]
+    seg = np.hypot(*np.diff(half, axis=0).T)
+    s_ = np.concatenate([[0], np.cumsum(seg)])
+    lim = s_[-1] * stroke
+    if lim > 1:
+        for S_ in (Q, Q[::-1]):
+            H_ = S_[:(n + 1) // 2 + 1]
+            k = int(np.searchsorted(s_, lim))
+            pts = list(H_[:k])
+            if k < len(H_):
+                t = (lim - s_[k - 1]) / max(seg[k - 1], 1e-6)
+                pts.append(H_[k - 1] + (H_[k] - H_[k - 1]) * t)
+            if len(pts) >= 2:
+                L.draw.line(L.p([tuple(p) for p in pts]), fill=L.col(core.FOAM, 0.5), width=L.w(1.8), joint='curve')
+    r = (L.done(), x0, y0)
+    if len(cc) > 400:
+        cc.clear()
+    cc[key] = r
+    return r
+
+
 def trail_layer(u, alpha=1.0, ghost=0.0):
     """放物線：通ったところは白い実線、この先はうすい点線（ghost）。(rgba, x0, y0)。"""
     y0 = int(APEX[1]) - 12

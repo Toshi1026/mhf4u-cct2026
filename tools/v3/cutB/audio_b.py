@@ -64,13 +64,21 @@ def main():
     music *= gain
 
     sfx = np.zeros(n, np.float32)
-    A.add(sfx, A.sub_hit(), 0.0, 0.35)
-    A.add(sfx, lab('whoosh/sword-gesture1.mp3'), 0.25, 0.55)            # 拳 → 飛んでいく
-    k1 = mora_t(B['01'], 'カ')                                          # 「かなた」の頃にキラーン
-    A.add(sfx, lab('chimes/kira2.mp3'), (k1 or 2.0) + 0.25, 0.35)
-    from cutB.beats import b06 as B06                                   # キラーン（効果音）＝ b06 の光る瞬間
-    A.add(sfx, lab('chimes/kira2.mp3'), (B['06']['f0'] + B06.timing(B['06'])['ki']) / 30, 0.45)
+    # 2026-11：効果音の時刻はビートの timing() から決める（画と音をフレームで合わせる）。
+    #   拳の素振り＝ピーク（ファイルの 0.175 秒）を当たりの 2 フレーム前、衝撃（sub_hit、ピーク 0.042 秒）＝当たりのフレーム、
+    #   キラーン（kira2、立ち上がり 0.061 秒）＝光が一番大きいフレーム（01：glint+GLINT_PEAK、06：ki）。
+    from cutB.beats import b01 as B01, b06 as B06, _art as ART
+    T1 = B01.timing(B['01'])
+    t_hit = (B['01']['f0'] + T1['hit']) / 30
+    A.add(sfx, A.sub_hit(), t_hit - 0.042, 0.35)
+    A.add(sfx, lab('whoosh/sword-gesture1.mp3'), max(0.0, t_hit - 2 / 30 - 0.175), 0.55)   # 拳 → 飛んでいく
+    A.add(sfx, lab('chimes/kira2.mp3'), (B['01']['f0'] + T1['glint'] + ART.GLINT_PEAK) / 30 - 0.061, 0.35)
+    A.add(sfx, lab('chimes/kira2.mp3'), (B['06']['f0'] + B06.timing(B['06'])['ki']) / 30 - 0.061, 0.45)
     A.add(sfx, lab('water/bath-thapon1.mp3'), tT + 0.05, 0.45)          # 着水
+    # 階と階のあいだの縦の振り（09→10、10→11、11→12）：素振りのピーク（0.175 秒）をカットのフレームに。01 より小さく
+    sw = lab('whoosh/sword-gesture1.mp3')
+    for k in ('10', '11', '12'):
+        A.add(sfx, sw, B[k]['f0'] / 30 - 0.175, 0.22)
 
     amb = np.zeros(n, np.float32)
     a1 = A.decode(os.path.join(core.FOOT, 'IMG_9662.MOV'), 1.6, 4.6)

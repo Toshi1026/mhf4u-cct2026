@@ -85,17 +85,64 @@ def z1():
     return ARC_FRAC * W / abs(float(S['dest'][0] - S['kat'][0]))
 
 
-def cam(t):
-    """(ctr, z)。0→約 84 フレームで寄り、その後はごくゆっくり流れ続ける（04 の背景も同じ関数で続ける）。"""
+CAM_N = 84                            # 寄りの長さ（フレーム）
+CAM_EASE = (0.65, 0.0, 0.35, 1.0)     # 寄りの曲線（cubic-bezier）
+# 寄りのあとも止めない、弧の中心まわりのごくゆっくりした押し込み（ln の速さ。03 の 74→111 で 1.00→1.045）
+DRIFT_R = 0.001225
+DRIFT_IN = (56, 84)                   # 押し込みがなめらかに始まる区間（寄りの減速と重ねて、ズームの速さが 0 にならない）
+DRIFT_DECAY = (111, 25.0, 0.35)       # 04 に入ってから（t0, tau, 残す割合）：メーターの後ろでは押し込みを 0.35 倍まで緩める
+PAN_V = np.array([1.2, 0.4])          # 押し込みと同じ曲線で、弧の中心の画面の位置もゆっくり流す（px/フレーム。飛ぶ向き＝左へカメラが追う）
+
+
+def _target():
     S = setup()
     ch = S['dest'] - S['kat']
-    q = (S['kat'] + S['dest']) / 2 + np.array([0.0, -0.125 * float(np.hypot(*ch))])   # 起こした弧の高さの半分だけ上
+    return (S['kat'] + S['dest']) / 2 + np.array([0.0, -0.125 * float(np.hypot(*ch))])   # 起こした弧の高さの半分だけ上
+
+
+def drift(t):
+    """押し込みの量（ln）。t は 03 の 0 フレーム目からの通しの時刻。"""
+    r = DRIFT_R
+    a, b = DRIFT_IN
+    n = b - a
+    if t <= a:
+        return 0.0
+    if t < b:
+        u = (t - a) / n
+        return r * n * (u ** 3 - u ** 4 / 2)
+    d = r * n * 0.5
+    t0, tau, keep = DRIFT_DECAY
+    if t < t0:
+        return d + r * (t - b)
+    d += r * (t0 - b)
+    k = t - t0
+    return d + r * (keep * k + (1 - keep) * tau * (1 - np.exp(-k / tau)))
+
+
+def pan(t):
+    return PAN_V * (drift(t) / DRIFT_R)
+
+
+def cam(t, extra=1.0):
+    """(ctr, z)。0→84 フレームで、弧の中心（_target）を画面の ANCHOR へ運びながら寄る（log z と、目標点の画面の位置を
+    同じ曲線で動かす＝目標点がまっすぐ ANCHOR へ向かう）。そのあとは弧の中心まわりのごくゆっくりした押し込み（drift）と
+    横への流れ（pan）が続く。04 の背景も同じ関数で続ける。extra：弧の中心まわりの追加の拡大（04 の奥行き）。"""
+    from cutB.beats import _motion as M
+    S = setup()
+    q = _target()
     c0 = np.array([560.0, 905.0])                          # はじめは土佐湾全体（室戸〜足摺）が入る引き
     Z1 = z1()
-    k = core.ease(t / 84.0, 'inout')
-    z = Z0 * (Z1 / Z0) ** k * (1 + 0.00025 * max(0.0, t - 84))
-    ctr = c0 + (q - c0) * k + np.array([-0.0013, 0.0004]) * max(0.0, t - 84)
+    k = M.cubic_bezier(*CAM_EASE)(min(max(t / float(CAM_N), 0.0), 1.0))
+    z = Z0 * (Z1 / Z0) ** k * float(np.exp(drift(t))) * extra
+    s0 = (q - c0) * Z0 + ANCHOR                            # 目標点のはじめの画面の位置
+    s = s0 + (ANCHOR - s0) * k + pan(t)
+    ctr = q - (s - ANCHOR) / z
     return ctr, z
+
+
+def target_scr(t, extra=1.0):
+    ctr, z = cam(t, extra)
+    return to_scr(_target()[None], ctr, z)[0]
 
 
 def to_scr(P, ctr, z):
@@ -150,9 +197,10 @@ def arc_pts(ctr, z, u=1.0, n=90, lift=1.0):
     return G2, A
 
 
-def draw_track(L, ctr, z, u, alpha=1.0, head=True, dash_phase=0.0):
+def draw_track(L, ctr, z, u, alpha=1.0, head=True, dash_phase=0.0, head_r=5.0, tail=0.0):
     """L：G.Lines。起こした放物線（白い破線）。地面の線は海岸線とほぼ重なるので描かない。
-    先頭の小さな点は進んでいるあいだだけ。"""
+    dash_phase：破線の模様を飛ぶ向きへ流す量（px）。head：先頭の点（半径 head_r）。
+    tail：先頭のうしろの彗星の尾（弧の全長に対する割合。根元 0→先頭 0.9、太さ 1→3px）。"""
     if u <= 0.002:
         return
     g, a = arc_pts(ctr, z, u, n=160)
@@ -161,8 +209,18 @@ def draw_track(L, ctr, z, u, alpha=1.0, head=True, dash_phase=0.0):
     for j, seg in enumerate(segs):
         k = j / tot
         L.poly(seg, 3.0, 255 * alpha * (0.97 - 0.22 * k * u))    # 先端に向けて少しだけうすく（行き先を強く指さない）
-    if head and u < 0.999:
-        L.dot(a[-1, 0], a[-1, 1], 5.0, 255 * alpha)
+    if tail > 0 and u > 0.01:
+        s0 = max(0.0, u - tail)
+        _, tl = arc_pts(ctr, z, u, n=160)
+        ss = np.linspace(0, u, len(tl))
+        sel = ss >= s0
+        P = tl[sel]
+        m = len(P)
+        for j in range(m - 1):
+            q = (j + 1) / float(m - 1)
+            L.poly(P[j:j + 2], 1.0 + 2.0 * q, 255 * alpha * 0.9 * q)
+    if head and head_r > 0.2:
+        L.dot(a[-1, 0], a[-1, 1], head_r, 255 * alpha)
 
 
 def kat_scr(ctr, z):

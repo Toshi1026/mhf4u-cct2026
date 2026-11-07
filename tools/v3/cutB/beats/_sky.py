@@ -22,45 +22,68 @@ def shore_y(x):
 _BG = {}
 
 
-def background():
-    """動かない部分（空・海・浜）。雲は別（cloud_layer）。"""
-    if 'bg' in _BG:
-        return _BG['bg']
-    f = np.empty((H, W, 3), np.float32)
+def background(extra=0):
+    """動かない部分（空・海・浜）。雲は別（cloud_layer）。extra：下へ足す行（01 のカメラが下を見るとき。浜が続く）。"""
+    if ('bg', extra) in _BG:
+        return _BG[('bg', extra)]
+    HH = H + extra
+    f = np.empty((HH, W, 3), np.float32)
     sky = core.vgrad(core.XS_SKY_TOP, core.XS_SKY_WL, h=HZ, gamma=0.85)
     # 水平線の近くだけ、ごく弱い朝のもや（白）
     yy = np.arange(HZ, dtype=np.float32)
     haze = (np.exp(-((HZ - yy) / 150.0) ** 2) * 0.16)[:, None, None]
     sky = sky + (core.FOAM - sky) * haze
     f[:HZ] = sky
-    sea = core.vgrad(core.c('4D97D2'), core.c('2A73B2'), h=H - HZ, gamma=0.6)
+    sea = core.vgrad(core.c('4D97D2'), core.c('2A73B2'), h=HH - HZ, gamma=0.6)
+    if extra:                                     # 足した行の分も、元の画面の範囲の色は変えない
+        sea[:H - HZ] = core.vgrad(core.c('4D97D2'), core.c('2A73B2'), h=H - HZ, gamma=0.6)
     f[HZ:] = sea
     # 海の上の細い光の筋（横長・うすい）
-    rng = np.random.default_rng(7)
-    lay = np.zeros((H, W), np.float32)
-    for _ in range(36):
-        y = HZ + 6 + (rng.random() ** 1.6) * 120
-        x = rng.uniform(-100, W)
-        ln = rng.uniform(40, 220) * (0.4 + (y - HZ) / 120)
-        cv2.line(lay, (int(x), int(y)), (int(x + ln), int(y)), float(rng.uniform(0.25, 0.6)), 1, cv2.LINE_AA)
-    lay = cv2.GaussianBlur(lay, (0, 0), 0.7)
-    f += (core.FOAM - f) * (lay * 0.22)[..., None]
+    # 2026-11：光の筋は frame() で毎フレーム少しずつ流してきらめかせる（streak_layer）。ここでは描かない
     # 水平線の白い細線
     f[HZ - 1:HZ + 1] = f[HZ - 1:HZ + 1] * 0.55 + core.FOAM * 0.45
     # 浜（青灰色）。波打ち際から下へ
     xs = np.arange(W, dtype=np.float32)
     sy = shore_y(xs)
-    Y = np.arange(H, dtype=np.float32)[:, None]
+    Y = np.arange(HH, dtype=np.float32)[:, None]
     m = np.clip(Y - sy[None, :] + 0.5, 0, 1)[..., None]
-    sand = core.vgrad(core.c('B4C5D3'), core.c('6A8397'), h=H, gamma=0.7)
+    tt = np.clip(np.arange(HH, dtype=np.float32) / (H - 1), 0, None)[:, None, None] ** 0.7
+    sand = np.clip(core.c('B4C5D3') * (1 - tt) + core.c('6A8397') * tt, 0, 1) * np.ones((1, W, 1), np.float32)
     # 波打ち際のすぐ下：ぬれた砂（少し暗く、空を映して青い）
     dy = (Y - sy[None, :])
     wet = (np.exp(-np.clip(dy, 0, None) / 38.0) * 0.55)[..., None]
     sand = sand * (1 - wet) + core.c('7C9BB4') * wet
     # 遠近：下へ行くほどごく弱く暗く
     f = f * (1 - m) + sand * m
-    _BG['bg'] = f.astype(np.float32)
-    return _BG['bg']
+    _BG[('bg', extra)] = f.astype(np.float32)
+    return _BG[('bg', extra)]
+
+
+SM = 360                  # 光の筋の板の左右の余白（流す分）
+
+
+def streak_layer():
+    """海の上の細い光の筋（横長・うすい）の板（行 HZ..HZ+140、幅 W+2·SM）。もとの 36 本＋余白の分。"""
+    if 'st' in _BG:
+        return _BG['st']
+    rng = np.random.default_rng(7)
+    lay = np.zeros((150, W + 2 * SM), np.float32)
+    for _ in range(36):
+        y = HZ + 6 + (rng.random() ** 1.6) * 120
+        x = rng.uniform(-100, W)
+        ln = rng.uniform(40, 220) * (0.4 + (y - HZ) / 120)
+        cv2.line(lay, (int(x) + SM, int(y) - HZ), (int(x + ln) + SM, int(y) - HZ), float(rng.uniform(0.25, 0.6)), 1,
+                 cv2.LINE_AA)
+    r2 = np.random.default_rng(17)
+    for _ in range(26):
+        y = HZ + 6 + (r2.random() ** 1.6) * 120
+        x = r2.choice([r2.uniform(-SM, -100), r2.uniform(W, W + SM)])
+        ln = r2.uniform(40, 220) * (0.4 + (y - HZ) / 120)
+        cv2.line(lay, (int(x) + SM, int(y) - HZ), (int(x + ln) + SM, int(y) - HZ), float(r2.uniform(0.25, 0.6)), 1,
+                 cv2.LINE_AA)
+    lay = cv2.GaussianBlur(lay, (0, 0), 0.7)
+    _BG['st'] = lay
+    return lay
 
 
 def cloud_layer():
@@ -78,15 +101,26 @@ def cloud_layer():
     return _BG['cl']
 
 
-def frame(gi):
-    """gi：01 の頭からの通しのフレーム番号（02 でも続けて数える）。空・雲・海・波打ち際。"""
-    f = background().copy()
+def frame(gi, extra=0):
+    """gi：01 の頭からの通しのフレーム番号（02 でも続けて数える）。空・雲・海・波打ち際。extra は background と同じ。"""
+    f = background(extra).copy()
     m, y0 = cloud_layer()
-    sh = 300 - 0.35 * gi                              # 雲は左へゆっくり流れる
+    sh = 300 - 1.0 * gi                               # 雲はゆっくり流れる（2026-11：止まって見えないよう 0.35→1.0px/フレーム）
     M = np.float32([[1, 0, -sh], [0, 1, 0]])
     cm = cv2.warpAffine(m, M, (W, m.shape[0]), flags=cv2.INTER_LINEAR)
     sub = f[y0:y0 + m.shape[0]]
     sub += (core.FOAM - sub) * cm[..., None]
+    # 海の光の筋：手前ほど速く左へ流れ、ゆっくりきらめく（止まった画にしない）
+    st = streak_layer()
+    yy = np.arange(st.shape[0], dtype=np.float32)[:, None]
+    xx = np.arange(W, dtype=np.float32)[None, :]
+    spd = 0.25 + 0.75 * np.clip(yy / 120.0, 0, 1)
+    mx = (xx + SM + spd * gi * 0.9).astype(np.float32)
+    my = np.broadcast_to(yy, mx.shape).astype(np.float32)
+    band = cv2.remap(st, mx, my, cv2.INTER_LINEAR)
+    tw = 0.78 + 0.22 * np.sin(xx / 63.0 + yy / 7.0 - gi * 0.23) * np.sin(xx / 151.0 - gi * 0.07 + 1.3)
+    sub = f[HZ:HZ + st.shape[0]]
+    sub += (core.FOAM - sub) * (band * tw * 0.22 / 0.89)[..., None]
     # 波打ち際の白い泡の線（ゆっくり寄せて返す）
     t = gi / core.FPS
     xs = np.arange(0, W + 1, 6, dtype=np.float32)
@@ -99,6 +133,15 @@ def frame(gi):
     sub = f[top:top + 90]
     sub += (core.FOAM - sub) * L[..., None]
     return f
+
+
+PUSH_MAX = 1.13           # 01 の頭から 02 のズームスルーの入りまでの、DOT を中心にした1本の押し込み
+
+
+def push_k(gi, gi_end):
+    """01・02 を通した押し込みの倍率（sine_in：だんだん速く、02 のズームスルーへ速さを渡す）。gi_end：02 の f46 の通し番号。"""
+    t = min(max(gi / float(gi_end), 0.0), 1.0)
+    return 1.0 + (PUSH_MAX - 1.0) * (0.4 * t + 0.6 * (1 - np.cos(t * np.pi / 2)))   # 頭から少し動いている
 
 
 def push(f, k, cx=DOT[0], cy=DOT[1]):

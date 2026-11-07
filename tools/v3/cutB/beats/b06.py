@@ -1,11 +1,24 @@
-"""B06（約4.4秒）「高さは、にせんごひゃくメートル。下からは、ほぼ点。キラーン。」
+"""B06（約3.9秒）「高さは、にせんごひゃくメートル。下からは、ほぼ点。」＋キラーン（効果音）
 横から見た断面。左の陸が桂浜。うすい点線の放物線の上を、悪役が回りながら上がっていき、頂点で止まる（アニメのお約束の一瞬の宙づり）。
  ニ（にせん）：「最高 2,500m」（2,500m を強調）。ル（メートル）のころ頂点に着き、頂点から右へ「2,500m」の点線、下へ高さの点線。
  その後：同じ縮尺の富士山（3,776m）のうすい輪郭が、すそから描かれ、「富士山の約3分の2」（2,525÷3,776＝0.67）。
  頂点の悪役（身長1.6m）を真下から見た視角は 1.6/2,525 rad ≈ 2.2分（人の目の限界 約1分の2倍ほど＝「ほぼ点」）。
 2026-11-07 訂正：10km 版。旧「最高 3,300m・富士山の9割近く」。
- シ（したからは）：桂浜から頂点へ見上げる点線。ホ（ほぼ点）：悪役が縮んで点になる。キ（キラーン）：1回だけ小さく光る。
-最初の 6 フレーム：05 の上への whip を受ける（下から上がってくる＋明るさを 12 フレームで戻す）。07 はこの最後の状態から続ける。"""
+ シ（したからは）：桂浜から頂点へ見上げる点線。ホ（ほぼ点）：悪役が縮んで点になる。キラーン（効果音 ki）：1回だけ小さく光る。
+最初の 6 フレーム：05 の上への whip を受ける（下から上がってくる＋明るさを 12 フレームで戻す）。07 はこの最後の状態から続ける。
+
+2026-11 動きの改善（director's motion spec §1-06）：
+- カメラ（世界のレイヤーだけ）：6–80 で (700, 760) を中心に 1.00→1.08（sine_inout）、80–92「ほぼ点」で頂点へ 1.13（expo_out）、
+  キラーンのあいだは止める。目盛り・桂浜・富士山・2,500m のラベルは Cam2D.project で置き（大きさは変えない）、セーフゾーンに収める。
+- 「最高 X m」：X は悪役のいまの高さ（_motion.Odometer）。ルで 2,500 にロック（back_out のポップ）。
+- 悪役：上がりはじめ（4–14）は弧の向きに 1.3→1.0 伸びてサブフレームのぶれ、マントは画面の向きで速さの反対へ。
+  頂点では回転が止まり、3px・0.8Hz でゆれる。80–90 で expo_in で縮み、点はポンと決まる（1.4→1.0）。
+- キラーン：_art.put_glint_fx。一番大きいフレームが効果音の頭（timing()['ki']）。
+- 見上げる点線は上へ流れる（0.8px/フレーム）。富士山は輪郭が quart_out で描かれ、塗りが 4 フレーム遅れ、名前は字間を詰めて入る。
+- 頂点から右への点線は ACC ではなく FOAM 0.75（1 画面に強調は 1 つ）。
+- 入り：05 と同じ速さの whip（_motion.whip 'in'、300px・ぶれ 110）。"""
+import math
+
 import cv2
 import numpy as np
 
@@ -14,14 +27,16 @@ import core
 import timeline_b as timeline
 from core import W, H, WL
 from beats import _mapui as U
-from cutB.beats import _art as A, _xsec as X
+from cutB.beats import _art as A, _xsec as X, _motion as M
 
 ENTRY, ENTRY_DIM = 12, 0.36
+WHIP_IN = 6
+PIV1 = (700.0, 760.0)
 
 
 def timing(beat):
     mo = beat['moras']
-    # タカサワ ニセンゴヒャク メエトル シタカラワ ホボテン キラアン
+    # タカサワ ニセンゴヒャク メエトル シタカラワ ホボテン（キラーンは効果音）
     # 2026-11-07：「キラーン」はナレーションから外し、効果音にした。光るのは「ほぼ点」の言い終わりの約0.35秒後
     assert mo[4][0] == 'ニ' and mo[13][0] == 'ル' and mo[14][0] == 'シ' and mo[19][0] == 'ホ', mo
     mf = lambda k: timeline.mora_frame(beat, k)
@@ -35,103 +50,219 @@ def villain_u(i, T):
 
 
 def villain_scale(i, T):
-    k = core.ease((i - T['ho']) / 10.0, 'inout')
+    k = M.ease((i - T['ho']) / 10.0, 'expo_in')
     return X.VS * (1 - k) + 0.12 * k
 
 
+def altitude_m(i, T):
+    u = villain_u(i, T)
+    return 4 * 2525 * u * (1 - u)
+
+
+# ---------------------------------------------------------------- カメラ
+def cam_zooms(i, T):
+    z1 = 1.0 + 0.08 * M.ease((i - 6) / float(max(1, T['ho'] - 6)), 'sine_inout')
+    z2 = 1.0 + (1.13 / 1.08 - 1.0) * M.ease((i - T['ho']) / 12.0, 'expo_out')
+    return z1, z2
+
+
+def cam_M(i, T):
+    """世界 → 画面（2×3）。PIV1 まわりの z1 のあと、頂点まわりの z2。07 はこの最後の値から戻す。"""
+    z1, z2 = cam_zooms(i, T)
+    A1 = np.array([[z1, 0, PIV1[0] * (1 - z1)], [0, z1, PIV1[1] * (1 - z1)], [0, 0, 1]])
+    ax, ay = X.APEX
+    A2 = np.array([[z2, 0, ax * (1 - z2)], [0, z2, ay * (1 - z2)], [0, 0, 1]])
+    return (A2 @ A1)[:2]
+
+
+def project(Mc, x, y, clamp=core.SAFE, margin=(0, 0, 0, 0)):
+    px = Mc[0, 0] * x + Mc[0, 1] * y + Mc[0, 2]
+    py = Mc[1, 0] * x + Mc[1, 1] * y + Mc[1, 2]
+    if clamp is not None:
+        px = min(max(px, clamp[0] + margin[0]), clamp[2] - margin[2])
+        py = min(max(py, clamp[1] + margin[1]), clamp[3] - margin[3])
+    return px, py
+
+
+def warp(f, Mc):
+    if np.allclose(Mc, [[1, 0, 0], [0, 1, 0]], atol=1e-6):
+        return f
+    return cv2.warpAffine(f, Mc.astype(np.float32), (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+
+
+# ---------------------------------------------------------------- 文字・ラベル
+_TX = {}
+
+
 def texts():
-    return (U.Patch([dict(text='最高 2,500m', x=W / 2, y=430, size=100, weight='Bold', hl='2,500m')]),
-            U.Patch([dict(text='富士山の約3分の2', x=W / 2, y=505, size=48, weight='Medium', track=0.08)]))
+    """(高さのカウンター, 「富士山の約3分の2」)。"""
+    if 't' not in _TX:
+        ctr = M.Odometer('2,500', W / 2, 430, digit_size=100, side_size=100, prefix='最高 ', suffix='m',
+                         gap=0.02, suffix_color=core.ACC, lock_scale=1.08, lock_drop=5.0, lock_dur=8, blur_k=0.5)
+        sub = M.KText([dict(text='富士山の約3分の2', x=W / 2, y=505, size=48, weight='Medium', track=0.08)])
+        fj = M.KText([dict(text='富士山 3,776m', x=X.FUJI_X, y=X.y_of(3776) - 22, size=28, weight='Medium',
+                           alpha=0.85)])
+        _TX['t'] = (ctr, sub, fj)
+    return _TX['t']
 
 
-def apex_lines(f, a):
-    """頂点から右への点線（ACC）と、水面までの高さの点線。"""
+def put_counter(f, i, T, alpha=1.0, extra_dy=0.0, blur=0.0):
+    """「最高 X m」（サで出て、悪役の高さと一緒に回り、ルで 2,500 に止まる）。"""
+    ctr = texts()[0]
+    if i < T['san'] - 2:
+        return f
+    a = M.ease((i - T['san'] + 3) / 4.0, 'sine_inout') * alpha
+    dy = 14 * (1 - M.ease((i - T['san'] + 3) / 8.0, 'expo_out'))
+    v = altitude_m(i, T)
+    dv = altitude_m(i + 0.5, T) - altitude_m(i - 0.5, T)
+    return ctr.put(f, v, a, i=i, f_lock=T['ru'], dv=dv, dy=dy + extra_dy, blur=blur)
+
+
+def put_labels(f, i, T, Mc, labels_a=1.0, fuji_a=None, apex_a=None, fuji_i=None):
+    """世界の点に付くラベル（大きさは変えず、位置だけカメラで動かしてセーフゾーンに収める）。"""
+    lab = X.labels()
+    for key, (x, y) in (('grid', (1010.0, X.y_of(1000) - 10)), ('kat', (X.X0 - 10, WL + 62))):
+        p = lab[key]
+        # 「桂浜」は中央ぞろえ（幅 約74px）なので、左の余白は半分の幅＋少し（寄りで左へ押し出されてもセーフゾーンの外に出ない）
+        px, py = project(Mc, x, y, margin=(45 if key == 'kat' else 0, 30, 0, 0))
+        if key == 'grid':
+            px = min(px, 1010.0)
+        f = p.put(f, labels_a, dx=px - x, dy=py - y)      # 2,000m も grid の板に入っている（1,000m の点で動かす）
+    if apex_a is not None and apex_a > 0.003:
+        ax, ay = 1010.0, X.APEX[1] - 12
+        px, py = project(Mc, ax, ay)
+        f = lab['apex'].put(f, apex_a, dx=min(px, 1010.0) - ax, dy=py - ay)
+    fa = 0.0 if fuji_a is None else fuji_a
+    if fa > 0.003:
+        fj = texts()[2]
+        x, y = X.FUJI_X, X.y_of(3776) - 22
+        px, py = project(Mc, x, y)
+        f = fj.reveal(f, i if fuji_i is None else fuji_i, T['ru'] + 9, 'track', track_from=0.30, dur=12,
+                      alpha=fa, dx=px - x, dy=py - y)
+    return f
+
+
+# ---------------------------------------------------------------- 世界の線
+def apex_lines(f, a, phase=0.0):
+    """頂点から右への点線（FOAM 0.75）と、水面までの高さの点線。"""
     if a <= 0.003:
         return f
     ax, ay = X.APEX
     y0 = int(ay) - 4
     L = core.SS(s=2, w=W, h=int(WL) + 4 - y0)
-    k = core.ease(a)
-    A.dashed(L, [(ax + 14, ay - y0), (ax + 14 + (1010 - ax - 14) * k, ay - y0)], L.col(core.ACC, 0.75), L.w(2.0),
-             dash=8, gap=7)
+    k = M.ease(a, 'cubic_out')
+    A.dashed(L, [(ax + 14, ay - y0), (ax + 14 + (1010 - ax - 14) * k, ay - y0)], L.col(core.FOAM, 0.75), L.w(2.0),
+             dash=8, gap=7, phase=phase)
     A.dashed(L, [(ax, ay + 16 - y0), (ax, ay + 16 + (WL - ay - 16) * k - y0)], L.col(core.FOAM, 0.38), L.w(1.6),
-             dash=6, gap=8)
+             dash=6, gap=8, phase=phase)
     return U.paste(f, L.done(), 0, y0)
 
 
-def sight_line(f, a):
-    """桂浜から頂点を見上げる点線。"""
+def sight_line(f, a, phase=0.0):
+    """桂浜から頂点を見上げる点線（点は上へ流れる）。"""
     if a <= 0.003:
         return f
     ax, ay = X.APEX
     p0 = np.array([X.X0 + 6, WL - 10.0])
-    p1 = p0 + (np.array([ax - 10, ay + 14]) - p0) * core.ease(min(1, a * 1.2))
+    p1 = p0 + (np.array([ax - 10, ay + 14]) - p0) * M.ease(min(1, a * 1.2), 'cubic_out')
     y0 = int(ay) - 4
     L = core.SS(s=2, w=W, h=int(WL) + 4 - y0)
-    A.dashed(L, [(p0[0], p0[1] - y0), (p1[0], p1[1] - y0)], L.col(core.FOAM, 0.55), L.w(1.8), dash=5, gap=7)
+    A.dashed(L, [(p0[0], p0[1] - y0), (p1[0], p1[1] - y0)], L.col(core.FOAM, 0.55), L.w(1.8), dash=5, gap=7,
+             phase=phase)
     return U.paste(f, L.done(), 0, y0, min(1.0, a * 1.5))
 
 
-def scene(i, T, f=None, title_a=1.0, fuji_a=None, labels_a=1.0):
-    """06 の i フレーム目（07 は i を n06 以上で呼ばずに、自分で組み立てる）。"""
+def fuji_state(i, T):
+    stroke = M.ease((i - T['ru'] - 3) / 16.0, 'quart_out')
+    fill = M.ease((i - T['ru'] - 7) / 14.0, 'sine_inout')
+    return stroke, fill
+
+
+def scene(i, T, f=None, fuji_a=None, fuji=None):
+    """06 の世界の背景（空と水・桂浜・富士山）。ラベルは put_labels（カメラのあと）。fuji=(stroke, fill) で上書き、
+    fuji_a で全体の濃さ（07 が消すとき）。"""
     bg = X.background()
-    lab = X.labels()
     f = bg.copy() if f is None else f
-    f = lab['grid'].put(f, labels_a)
-    f = lab['kat'].put(f, labels_a)
-    # 富士山
-    fa = core.ease((i - T['ru'] - 3) / 16.0) if fuji_a is None else fuji_a
-    if fa > 0:
-        rgba, x0, y0 = X.fuji_layer(fa)
-        f = U.paste(f, rgba, x0, y0)
-        f = lab['fuji'].put(f, core.ease((i - T['ru'] - 10) / 8.0) if fuji_a is None else fuji_a)
+    st, fl = fuji_state(i, T) if fuji is None else fuji
+    if fuji_a is not None:
+        fl *= fuji_a
+    if st > 0.003 and (fuji_a is None or fuji_a > 0.003):
+        rgba, x0, y0 = X.fuji_layer2(st, fl)
+        f = U.paste(f, rgba, x0, y0, 1.0 if fuji_a is None else fuji_a)
     return f
+
+
+# ---------------------------------------------------------------- 悪役
+def villain_draw(t, T):
+    """小数のフレーム t の悪役の板（世界の座標）。"""
+    u = villain_u(t, T)
+    x, y = X.arc(u)
+    sc = villain_scale(t, T)
+    sec = t / core.FPS
+    ang = -20 + 560 * u / 0.5
+    hang = max(0.0, t - T['ru'])
+    bob = -3 * math.sin(2 * math.pi * 0.8 * hang / core.FPS) * (hang > 0)
+    tg = X.tangent_ang(min(u, 0.499))
+    s_al = 1.3 - 0.3 * M.ease((t - T['start']) / 10.0, 'cubic_out')
+    M2 = M.squash_matrix(tg, s_al, 1 / math.sqrt(s_al)) if s_al > 1.002 else None
+    # マント：上がるあいだは速さの反対（2 フレーム遅れ）、頂点では左うしろへ少し垂れてはためく（真下だと逆さの頭に重なる）
+    ul = villain_u(t - 2, T)
+    tl = X.tangent_ang(min(max(ul, 0.001), 0.499))
+    w_hang = M.ease(hang / 10.0, 'sine_inout')
+    cape = (tl + 180) * (1 - w_hang) + 160 * w_hang + 8 * math.sin(sec * 9.0)     # 頂点：左うしろへ少し垂れる
+    return A.villain_rgba(float(x), float(y) - 14 * sc + bob, sc, ang, 'fly', sec, M2=M2, cape_ang=cape)
+
+
+def put_villain(f, i, T):
+    sc = villain_scale(i, T)
+    if sc * 34 >= 5:
+        x0, y0 = X.arc(villain_u(i - 0.5, T))
+        x1, y1 = X.arc(villain_u(i + 0.5, T))
+        sp = float(np.hypot(x1 - x0, y1 - y0))
+        n = int(np.clip(math.ceil(sp * 0.4 / 3.0), 1, 8)) if sp > 12 else 1
+        r = M.subframe(lambda t: villain_draw(t, T), i, shutter=0.4, n=n)
+        return M.put_rgba(f, *r, shadow=0.35, shadow_px=max(1.0, 1.1 * sc)) if r else f
+    # 点：ポンと決まる（1.4→1.0）
+    k0 = next((k for k in range(int(T['ho']), int(T['ho']) + 14) if villain_scale(k, T) * 34 < 5), int(T['ho']) + 8)
+    pr = 1.4 - 0.4 * M.ease((i - k0 + 1) / 4.0, 'back_out')
+    return A.put_dot(f, X.APEX[0], X.APEX[1] - 2, 2.4 * pr)
+
+
+def glint_k(i, T):
+    """キラーンの k（一番大きいフレームが ki＝効果音の頭）。"""
+    return i - (T['ki'] - A.GLINT_PEAK)
 
 
 def render(beat, ctx):
     n = beat['n']
     T = timing(beat)
-    t_main, t_sub = texts()
-    lab = X.labels()
+    ctr, t_sub, _ = texts()
     for i in range(n):
-        t = i / core.FPS
         f = scene(i, T)
         u = villain_u(i, T)
         # 放物線（この先はうすい点線、通った所は実線）
-        rgba, x0, y0 = X.trail_layer(u, ghost=core.ease((i + 1) / 10.0))
+        rgba, x0, y0 = X.trail_layer(u, ghost=M.ease((i + 1) / 10.0, 'sine_inout'))
         f = U.paste(f, rgba, x0, y0)
         # 頂点の印
-        a_ap = (i - T['ru'] + 6) / 10.0
-        f = apex_lines(f, float(np.clip(a_ap, 0, 1)))
-        f = lab['apex'].put(f, core.ease((i - T['ru'] + 1) / 6.0))
-        f = sight_line(f, float(np.clip((i - T['shi'] + 1) / 12.0, 0, 1)) * (1 - 0.5 * core.ease((i - T['ki']) / 12.0)))
-        # 悪役（頂点で宙づりのあいだは、ゆっくり回る）
-        x, y = X.arc(u)
-        sc = villain_scale(i, T)
-        ang = -20 + 560 * u / 0.5 + 25 * max(0, i - T['ru']) / core.FPS
-        bob = -3 * np.sin(max(0, i - T['ru']) * 0.18) * (u >= 0.4999)
-        if sc * 34 >= 5:
-            f = A.put_villain(f, float(x), float(y) - 14 * sc + bob, sc, ang=ang, pose='fly', t=t)
-        else:
-            f = A.put_dot(f, X.APEX[0], X.APEX[1] - 2, 2.4)
-        # キラーン
-        g = A.glint_env(i - T['ki'])
-        if g > 0.01:
-            f = A.put_glint(f, X.APEX[0], X.APEX[1] - 2, 42 * g, ang=10 * (1 - g), alpha=min(1.0, g * 1.4))
+        a_ap = float(np.clip((i - T['ru'] + 6) / 10.0, 0, 1))
+        f = apex_lines(f, a_ap)
+        f = sight_line(f, float(np.clip((i - T['shi'] + 1) / 12.0, 0, 1)) * (1 - 0.5 * M.ease((i - T['ki']) / 12.0)),
+                       phase=-0.8 * i)
+        f = put_villain(f, i, T)
+        f = A.put_glint_fx(f, X.APEX[0], X.APEX[1] - 2, glint_k(i, T), r=42)
+        # カメラ（世界 → 画面）、ラベルは画面で
+        Mc = cam_M(i, T)
+        f = warp(f, Mc)
+        st, _fl = fuji_state(i, T)
+        f = put_labels(f, i, T, Mc, fuji_a=M.ease((i - T['ru'] - 9) / 6.0, 'sine_inout') if st > 0 else 0.0,
+                       apex_a=M.ease((i - T['ru'] + 1) / 6.0, 'sine_inout'))
         # 文字
-        if i >= T['san'] - 1:
-            a = core.ease((i - T['san'] + 2) / 6.0)
-            f = t_main.put(f, a, dy=10 * (1 - a))
-        if i >= T['ru'] + 6:
-            a = core.ease((i - T['ru'] - 5) / 6.0)
-            f = t_sub.put(f, a, dy=8 * (1 - a))
+        f = put_counter(f, i, T)
+        f = t_sub.reveal(f, i, T['ru'] + 4, 'char_rise', stagger=0.8, dur=10)
         # 入り：05 の上への whip を受ける
+        if i < WHIP_IN:
+            f = M.whip(f, i / float(WHIP_IN), axis=0, sign=-1, px=300.0, blur=110.0, direction='in')
         if i < ENTRY:
             q = i / float(ENTRY)
-            if i < 6:
-                dy = 200 * (1 - i / 6.0) ** 2
-                f = cv2.warpAffine(f, np.float32([[1, 0, 0], [0, 1, dy]]), (W, H), flags=cv2.INTER_LINEAR,
-                                   borderMode=cv2.BORDER_REFLECT)
-                f = core.whip(f, 100 * (1 - i / 6.0) ** 1.4, axis=0)
             f = f * (ENTRY_DIM + (1 - ENTRY_DIM) * (0.5 * q + 0.5 * core.ease(q, 'smooth')))
         yield np.clip(f, 0, 1).astype(np.float32)
