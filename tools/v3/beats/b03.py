@@ -21,15 +21,15 @@ PDN = (39.605, -9.082)                 # Praia do Norte（波が集まる浜）
 KX = 111.32 * np.cos(np.radians(39.55))  # km / 経度1度
 KY = 111.2
 # 画面への写し方：沖（西）から陸（東）の方を、少し斜めに見下ろす。画面の上＝東、右＝南
-S_KM = 11.0              # 浜の奥行きでの px/km
+S_KM = 14.0              # 浜の奥行きでの px/km
 TILT = np.radians(30)
 FOC = 2100.0
-PX, PY = 430.0, 880.0    # 浜の画面位置（b04 の最初の画面位置もここ）
+PX, PY = 470.0, 900.0    # 浜の画面位置（b04 の最初の画面位置もここ）
 ROLL = 90.0              # 画面の上が東（b04 はこの向きから北が上へ戻る）
 
 SHALLOW = core.lerp(core.SEA, core.DEEP, 0.30)
 DEEPC = core.lerp(core.NAVY, core.DEEP, 0.30)
-FOG = core.lerp(core.NAVY, core.DEEP, 0.18)
+FOG = core.lerp(core.NAVY, core.DEEP, 0.36)
 
 
 def to_km(lat, lon):
@@ -134,8 +134,8 @@ class _Static:
         land = np.clip(dep / 6.0 + 0.5, 0, 1)[..., None]
         f = sea * (1 - land) + core.LAND * (0.96 + 0.06 * shade[..., None]) * land
         # 奥（東・画面の上）ほど霧で暗く
-        far = np.clip((PY - 60 - yy) / 520, 0, 1)[..., None]
-        far = far * far * (3 - 2 * far) * 0.9
+        far = np.clip((PY - 30 - yy) / 420, 0, 1)[..., None]
+        far = far * (2 - far) * 0.96
         f = f * (1 - far) + FOG * far
         v = vig[..., None] * (1 - far)
         self.base_no_lines = f.astype(np.float32)
@@ -181,6 +181,8 @@ class _Static:
         for B in _rays(tk):
             x, y = km_to_screen(B[:, 0], B[:, 1])
             P = np.stack([x, y], 1)
+            on = np.flatnonzero((P[:, 1] < H + 60) & (P[:, 0] > -60))
+            P = P[max(0, on[0] - 1):]
             s = np.concatenate([[0], np.cumsum(np.hypot(*np.diff(P, axis=0).T))])
             self.rays.append((P, s))
         self.pdn = np.array(ll_to_screen(*PDN))
@@ -228,18 +230,18 @@ def scene(i, n, st, beat):
     dash = G.Lines()
     arrived = 0.0
     for k, (P, s) in enumerate(st.rays):
-        pr = core.ease((i - 4 - k * 1.2) / 30, 'inout')
+        pr = core.ease((i - 6 - k * 1.5) / 28, 'inout')
         if pr <= 0:
             continue
         Pp = _partial(P, s, pr)
         base.poly(Pp, 1.6)
-        ph = (i * 11.0 + k * 23) % 90
-        segs = G.dashed(Pp, 30, 60, phase=ph)
+        ph = (i * 12.0 + k * 37) % 130
+        segs = G.dashed(Pp, 34, 96, phase=ph)
         for sg in segs:
             dash.poly(sg, 2.6)
         arrived += pr >= 0.999
     bm, dm = base.done(), dash.done()
-    f = G.tint(f, bm, core.FOAM, 0.30)
+    f = G.tint(f, bm, core.FOAM, 0.24)
     f = G.tint(f, np.clip(G.glow(dm, 4) * 1.6, 0, 1), core.SKY, 0.30)
     f = G.tint(f, dm, core.FOAM, 0.85)
     # 集まる点
@@ -254,21 +256,23 @@ def render(beat, ctx):
     st = static()
     mf = lambda k: timeline.mora_frame(beat, k)
     f_umi = mf(4)            # ウ（うみの そこの たに）
-    f_line2 = mf(8) + 2       # 「波を集める」
+    f_line2 = f_umi + 4       # 「波を集める」
     t1 = U.Patch([dict(text='海の底の谷が', x=W / 2, y=548, size=92, weight='Bold', hl='谷')])
     t2 = U.Patch([dict(text='波を集める', x=W / 2, y=660, size=92, weight='Bold')])
     # 「長さ 約210km」：谷の軸のそば（西寄り）
-    j = int(len(st.thal) * 0.42)
+    j = int(np.argmin(np.abs(st.thal[:, 1] - 1120)))
     lx, ly = st.thal[j]
-    t_len = U.Patch([dict(text='長さ 約210km', x=lx + 10, y=ly + 74, size=34, weight='Medium')])
-    t_cr = U.Patch([dict(text='水深データ：EMODnet', x=W / 2, y=1222, size=28, weight='Regular', alpha=0.85)])
+    t_len = U.Patch([dict(text='長さ 約210km', x=lx + 46, y=ly + 12, size=34, weight='Medium', anchor='ls')])
+    t_cr = U.Patch([dict(text='水深データ：EMODnet', x=75, y=1236, size=28, weight='Regular', anchor='ls',
+                         alpha=0.85)])
     for i in range(n):
         f = scene(i, n, st, beat)
         f = U.scrim(f, 470, 680, 0.30 * core.ease((i - f_umi + 6) / 10), feather=170)
-        f = t_cr.put(f, 0.85 * core.ease((i - 4) / 10))
-        f = t_len.put(f, core.ease((i - 16) / 8))
-        f = t1.put(f, core.ease((i - f_umi + 1) / 6))
-        f = t2.put(f, core.ease((i - f_line2 + 1) / 6))
+        out = core.ease((n - 1 - i) / 6)          # 最後は文字を先に消す（ズームアウトの前）
+        f = t_cr.put(f, 0.85 * core.ease((i - 4) / 10) * out)
+        f = t_len.put(f, core.ease((i - 16) / 8) * out)
+        f = t1.put(f, core.ease((i - f_umi + 1) / 6) * out)
+        f = t2.put(f, core.ease((i - f_line2 + 1) / 6) * out)
         # 最初：b02 の下へのティルトを受けて、縦のぶれが収まる
         if i < 8:
             k = core.ease((i + 1) / 8, 'out')
@@ -279,10 +283,9 @@ def render(beat, ctx):
         # 最後：浜を中心にズームアウトしながらぼかす → b04
         if i >= n - 8:
             k = (i - (n - 8) + 1) / 8
-            sc = 1 - 0.55 * core.ease(k, 'in')
+            sc = 1 - 0.40 * core.ease(k, 'in')
             cx, cy = st.pdn
             M = np.float32([[sc, 0, cx * (1 - sc)], [0, sc, cy * (1 - sc)]])
-            bgc = G.BG_TOP * 0.5 + G.BG_BOT * 0.5
-            f = cv2.warpAffine(f, M, (W, H), borderMode=cv2.BORDER_CONSTANT, borderValue=tuple(float(v) for v in bgc))
-            f = core.zoom_blur(f, 0.30 * k ** 1.5, cx=cx, cy=cy)
+            f = cv2.warpAffine(f, M, (W, H), borderMode=cv2.BORDER_REPLICATE)
+            f = core.zoom_blur(f, 0.32 * k ** 1.3, cx=cx, cy=cy)
         yield np.clip(f, 0, 1).astype(np.float32)

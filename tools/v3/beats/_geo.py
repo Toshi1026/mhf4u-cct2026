@@ -286,12 +286,16 @@ def background():
 class View:
     """lat0/lon0：画面中心に来る点、R：半径 px、(cx, cy)：その点の画面位置。"""
 
-    def __init__(self, lat0, lon0, R, cx=W / 2, cy=H / 2):
+    def __init__(self, lat0, lon0, R, cx=W / 2, cy=H / 2, roll=0.0):
+        """roll：度。90 で画面の上が東（b03 の向き）。"""
         self.lat0, self.lon0, self.R, self.cx, self.cy = lat0, lon0, R, cx, cy
         la, lo = np.radians(lat0), np.radians(lon0)
         self.c = np.array([np.cos(la) * np.cos(lo), np.cos(la) * np.sin(lo), np.sin(la)])
-        self.e = np.array([-np.sin(lo), np.cos(lo), 0.0])
-        self.n = np.cross(self.c, self.e)
+        e = np.array([-np.sin(lo), np.cos(lo), 0.0])
+        n = np.cross(self.c, e)
+        r = np.radians(roll)
+        self.e = np.cos(r) * e - np.sin(r) * n
+        self.n = np.cos(r) * n + np.sin(r) * e
 
     def proj(self, P):
         """単位ベクトル（…,3）→ 画面 x, y と奥行き z（>0 なら見える）。"""
@@ -309,6 +313,32 @@ class View:
         if hide:
             S[z < 0.0] = np.nan
         return S
+
+
+def spline_centres(keys, n):
+    """keys：[(frame, lat, lon), ...] → 各フレームの (lat, lon)。単位ベクトルの Catmull-Rom を正規化（なめらか）。"""
+    fr = np.array([k[0] for k in keys], np.float64)
+    P = xyz(np.array([k[1] for k in keys]), np.array([k[2] for k in keys]))
+    out = []
+    for i in range(n):
+        j = int(np.clip(np.searchsorted(fr, i, side='right') - 1, 0, len(fr) - 2))
+        t = float(np.clip((i - fr[j]) / (fr[j + 1] - fr[j]), 0, 1))
+        p0, p1, p2, p3 = P[max(j - 1, 0)], P[j], P[j + 1], P[min(j + 2, len(P) - 1)]
+        # 間隔が不ぞろいなキーでも速さが跳ねないよう、接線を時間間隔で重みづけ
+        d0 = fr[j] - fr[max(j - 1, 0)] or 1.0
+        d1 = fr[j + 1] - fr[j]
+        d2 = fr[min(j + 2, len(fr) - 1)] - fr[j + 1] or 1.0
+        m1 = (p2 - p0) / (d0 + d1) * d1
+        m2 = (p3 - p1) / (d1 + d2) * d1
+        if j == 0:
+            m1 = (p2 - p1) * 0.0
+        if j + 2 >= len(P):
+            m2 = (p2 - p1) * 0.0
+        t2, t3 = t * t, t * t * t
+        q = (2 * t3 - 3 * t2 + 1) * p1 + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * p2 + (t3 - t2) * m2
+        la, lo = latlon(q)
+        out.append((float(la), float(lo)))
+    return out
 
 
 def view_lerp(a, b, t):
@@ -451,8 +481,8 @@ class Globe:
 
 
 # ---------------------------------------------------------------- 線を描く（画面座標で）
-def draw_line(frame, pts, rgb, width=2.0, alpha=1.0, glow_sigma=0, glow_alpha=0.0):
-    """pts：(N,2)（NaN 区切り可）またはそのリスト。"""
+def draw_line(frame, pts, rgb, width=2.0, alpha=1.0, glow_sigma=0, glow_alpha=0.0, under=0.0):
+    """pts：(N,2)（NaN 区切り可）またはそのリスト。under>0 なら下に細い暗い縁（明るい陸の上でも見えるように）。"""
     L = Lines()
     if isinstance(pts, list):
         for p in pts:
@@ -460,6 +490,9 @@ def draw_line(frame, pts, rgb, width=2.0, alpha=1.0, glow_sigma=0, glow_alpha=0.
     else:
         L.poly(pts, width)
     m = L.done()
+    if under > 0:
+        sh = np.clip(cv2.GaussianBlur(m, (0, 0), 1.6) * 2.2, 0, 1)
+        frame = tint(frame, sh, core.NAVY, under * alpha)
     if glow_sigma and glow_alpha:
         frame = tint(frame, np.clip(glow(m, glow_sigma) * 2.2, 0, 1), rgb, glow_alpha)
     return tint(frame, m, rgb, alpha)
@@ -474,3 +507,23 @@ def draw_dots(frame, pts, r, rgb, alpha=1.0, glow_sigma=0, glow_alpha=0.0):
     if glow_sigma and glow_alpha:
         frame = tint(frame, np.clip(glow(m, glow_sigma) * 2.5, 0, 1), rgb, glow_alpha)
     return tint(frame, m, rgb, alpha)
+
+
+# ---------------------------------------------------------------- ナザレ → 土佐市新居（海だけの道）
+NAZARE = (39.60, -9.08)
+SHINKAI = (33.47, 133.44)      # 土佐市新居
+# 指定の経由点（大西洋→喜望峰→インド洋→インドネシアの海峡→フィリピン海→土佐湾）に、
+# 陸をかすめないための小さな経由点（ロンボク海峡・マカッサル海峡・セレベス海）を足したもの
+SEA_ROUTE = [(39.6, -9.08), (39.0, -10.2), (15, -25), (-36, 19), (-30, 60), (-12, 105), (-10.2, 115.7),
+             (-8.75, 115.85), (-6.6, 116.4), (-2.5, 118.3), (1.0, 119.5), (3.5, 122.0), (4.8, 125.9), (5, 128),
+             (20, 132), (33.47, 133.44)]
+_SEA = None
+
+
+def sea_route():
+    """(単位ベクトル列, 累積弧長) をキャッシュして返す。"""
+    global _SEA
+    if _SEA is None:
+        P = route(SEA_ROUTE, step_deg=0.25, round_deg=2.5)
+        _SEA = (P, arclen(P))
+    return _SEA

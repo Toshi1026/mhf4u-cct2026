@@ -67,7 +67,7 @@ class Counter:
     右端（suffix の右）を固定して、桁が増えると左へ伸びる。cx はできあがり（最終の文字列）の中心。"""
 
     def __init__(self, final, cx, y, digit_size=170, side_size=96, prefix='約', suffix='km', weight='Bold',
-                 side_weight='Bold', gap=0.06):
+                 side_weight='Bold', gap=0.06, center=True):
         self.y, self.ds, self.ss = y, digit_size, side_size
         self.prefix, self.suffix, self.weight, self.side_weight = prefix, suffix, weight, side_weight
         f = core.font(digit_size, weight)
@@ -78,13 +78,18 @@ class Counter:
         self.sw = core.text_width(suffix, side_size, side_weight, 0.02) if suffix else 0
         tot = self.pw + self.gap + self._numw(final) + self.gap + self.sw
         self.right = cx + tot / 2
+        self.cx, self.center = cx, center
         self._cache = {}
+
+    def width(self, s):
+        return self.pw + 2 * self.gap + self._numw(s) + self.sw
 
     def _numw(self, s):
         return sum(self.comma if ch == ',' else self.cell for ch in s)
 
     def items(self, s, alpha=1.0):
-        x = self.right - self.sw
+        right = self.cx + self.width(s) / 2 if self.center else self.right
+        x = right - self.sw
         out = []
         if self.suffix:
             out.append(dict(text=self.suffix, x=x, y=self.y, size=self.ss, weight=self.side_weight, anchor='ls',
@@ -102,7 +107,8 @@ class Counter:
         return out
 
     def left(self, s):
-        return self.right - self.sw - 2 * self.gap - self._numw(s) - self.pw
+        right = self.cx + self.width(s) / 2 if self.center else self.right
+        return right - self.width(s)
 
     def put(self, frame, s, alpha=1.0, extra=()):
         key = (s, tuple(sorted((k, str(v)) for e in extra for k, v in e.items())))
@@ -178,8 +184,36 @@ def speedometer(L, cx, cy, r, value, scale=1.0, vmax=60, alpha=1.0, labels=True,
     d.ellipse(L.box(cx - hr2, cy - hr2, cx + hr2, cy + hr2), fill=L.col(core.DEEP, alpha))
 
 
+METER_R = 340
+
+
+def meter_layer(cx, cy, value, scale=1.0, alpha=1.0, labels=True):
+    """メーターだけの小さな板 (rgba, x0, y0, label_items)。label_items は画面座標の数字（Patch で貼る）。"""
+    r = METER_R * scale
+    pad = 24 * max(scale, 0.3) + 6
+    x0, y0 = int(np.floor(cx - r - pad)), int(np.floor(cy - r - pad))
+    w, h = int(np.ceil(2 * r + 2 * pad)) + 1, int(np.ceil(r + 30 * scale + 2 * pad)) + 1
+    L = core.SS(s=3, w=w, h=h)
+    items = []
+    speedometer(L, cx - x0, cy - y0, METER_R, value, scale=scale, alpha=alpha, labels=labels, label_items=items)
+    for it in items:
+        it['x'] += x0
+        it['y'] += y0
+    return L.done(), x0, y0, items
+
+
+def paste(f, rgba, x0, y0, alpha=1.0):
+    h, w = rgba.shape[:2]
+    X0, Y0, X1, Y1 = max(x0, 0), max(y0, 0), min(x0 + w, W), min(y0 + h, H)
+    if X1 <= X0 or Y1 <= Y0 or alpha <= 0:
+        return f
+    a = rgba[Y0 - y0:Y1 - y0, X0 - x0:X1 - x0]
+    sub = f[Y0:Y1, X0:X1]
+    sub += (a[..., :3] - sub) * (a[..., 3:4] * alpha)
+    return f
+
+
 def icon_layer(alpha=1.0, value=40):
-    """b08 の最後に残る小さなメーター（ICON_POS・ICON_SCALE）の RGBA。b09 で同じものを使う。"""
-    L = core.SS(s=3)
-    speedometer(L, ICON_POS[0], ICON_POS[1], 340, value, scale=ICON_SCALE * 1.0, alpha=alpha, labels=False)
-    return L.done()
+    """b08 の最後に残る小さなメーター（ICON_POS・ICON_SCALE）。(rgba, x0, y0)。b09 で同じものを使う。"""
+    rgba, x0, y0, _ = meter_layer(ICON_POS[0], ICON_POS[1], value, scale=ICON_SCALE, alpha=alpha, labels=False)
+    return rgba, x0, y0

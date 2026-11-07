@@ -124,6 +124,7 @@ class Wave3D:
 
     def __init__(self, K=230, yh=1150, camh=0.5, f=800.0, cx=W * 0.5, znear=0.78):
         self.K, self.yh, self.camh, self.f, self.cx = K, yh, camh, f, cx
+        self.cx0 = cx
         # 1/z で並べる（画面上でほぼ等間隔）。チューブのあたり（z 1.5〜3.8）は細かく
         inv = np.concatenate([np.linspace(1 / 9.0, 1 / 3.8, 36, endpoint=False),
                               np.linspace(1 / 3.8, 1 / 1.5, K - 126, endpoint=False),
@@ -210,11 +211,17 @@ class Wave3D:
         z = self.z
         zp = 2.95 - 0.10 * t                                # 崩れていく点が手前へ進む
         c = curl3d(z, zp)
-        uoff = -0.75 + 0.045 * t                            # 波はゆっくり右へ（カメラもほぼ並走）
+        uoff = -0.78 + 0.06 * t                            # 波はゆっくり右へ（カメラもほぼ並走）
         return dict(t=t, c=c, uoff=uoff, zp=zp)
 
     # -------------------------------------------------- 描画
-    def render(self, t):
+    def render(self, t, pan=0.0):
+        """pan：カメラを右へ振った量（px）。画は左へ動き、右から新しい海と空が入る。"""
+        self.cx = self.cx0 - pan
+        bg = self.bg
+        if pan:
+            M = np.array([[1, 0, -pan], [0, 1, 0]], np.float32)
+            bg = cv2.warpAffine(self.bg, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         st = self.state(t)
         K, z, A, us = self.K, self.z, self.A, self.us
         c, uoff = st['c'], st['uoff']
@@ -272,8 +279,8 @@ class Wave3D:
         col = col * (1 - wh) + core.FOAM * wh
         bl = blend[..., None]
         hz3 = hz[..., None]
-        seac = self.bg[y0 + 1::2, ::2][:hr, :hw]
-        col = (seac * (1 - bl) + col * bl) * (1 - hz3) + HAZE * hz3
+        seac = bg[y0 + 1::2, ::2][:hr, :hw]
+        col = seac * (1 - bl) + (col * (1 - hz3) + HAZE * hz3) * bl
         col = cv2.resize(col, (W, rows), interpolation=cv2.INTER_LINEAR)
         lmask = cv2.resize(lmask.astype(np.float32), (W, rows), interpolation=cv2.INTER_LINEAR)
         # 線（水面ぎわの線は消す：高さは 1倍の idx で正確に求める）
@@ -284,7 +291,7 @@ class Wave3D:
         la = np.clip(e * lmask * 0.51, 0, 0.5)[..., None]
         col = col * (1 - la) + core.FOAM * la
 
-        out = self.bg.copy()
+        out = bg.copy()
         self._sea_streaks(out, st)
         cv_ = cov[..., None]
         out[y0:] = out[y0:] * (1 - cv_) + col * cv_
@@ -355,9 +362,10 @@ class Wave3D:
         out[:] = out * (1 - a) + core.FOAM * a
 
     # -------------------------------------------------- サーファー
-    def surfer_at(self, t, z, sf):
+    def surfer_at(self, t, z, sf, pan=0.0):
         """断面 z（c は state(t) から補間）の斜面のパラメータ sf の点に立つサーファーの画面位置と角度。"""
         st = self.state(t)
+        self.cx = self.cx0 - pan
         zp = st['zp']
         c = float(curl3d(z, zp))
         A = float(amp3d(z))
@@ -412,3 +420,379 @@ def draw_surfer(frame, x, y, scale=2.0, ang=0.0, alpha=1.0, pose='ride', head=0.
         reg = reg * (1 - sa) + core.c('062A4E') * sa
     frame[ya:yb, xa:xb] = reg * (1 - a) + sub[..., :3] * a
     return frame
+
+
+# ================================================================ 断面図（真横）：浅瀬で崩れる波（b05、b06 の巻き戻し）
+def mask_poly(pts, h, w, y0=0):
+    """多角形の AA マスク（float 0..1、形 (h, w)、上端は y0）。"""
+    m = np.zeros((h, w), np.uint8)
+    P = np.round((np.asarray(pts, np.float32) - (0, y0)) * 4).astype(np.int32)
+    cv2.fillPoly(m, [P], 255, lineType=cv2.LINE_AA, shift=2)
+    return m.astype(np.float32) / 255
+
+
+def mask_line(pts, h, w, th=1, y0=0):
+    m = np.zeros((h, w), np.uint8)
+    P = np.round((np.asarray(pts, np.float32) - (0, y0)) * 4).astype(np.int32)
+    cv2.polylines(m, [P], False, 255, thickness=th, lineType=cv2.LINE_AA, shift=2)
+    return m.astype(np.float32) / 255
+
+
+def keys(x, ks, vs, ease_=True):
+    """キーフレーム補間（区間ごとに smoothstep）。"""
+    x = float(x)
+    if x <= ks[0]:
+        return float(vs[0])
+    if x >= ks[-1]:
+        return float(vs[-1])
+    i = int(np.searchsorted(ks, x, side='right')) - 1
+    t = (x - ks[i]) / (ks[i + 1] - ks[i])
+    if ease_:
+        t = t * t * (3 - 2 * t)
+    return float(vs[i] + (vs[i + 1] - vs[i]) * t)
+
+
+_P0 = profile(0.0)
+_P0_TOP = _P0[1:-1]          # c=0 は上面が u について一価
+
+
+def shape_xs(m):
+    """m ∈ [-1, 1.4]。-1：沖のなだらかな山（左右対称）→ 0：前が立った斜面 → 1：チューブ → 1.4：着水。"""
+    if m >= 0:
+        return profile(m)
+    u = np.linspace(-3.6, 3.6, 140, dtype=np.float32)
+    hs = 1 / np.cosh(u / 0.9) ** 2
+    hp = np.interp(u, _P0_TOP[:, 0], _P0_TOP[:, 1]).astype(np.float32)
+    k = float(-m)
+    k = k * k * (3 - 2 * k)
+    h = hp * (1 - k) + hs * k
+    return np.concatenate([[(-6, 0)], np.stack([u, h], 1), [(6, 0)]]).astype(np.float32)
+
+
+def surf_point_xs(m, us=0.56):
+    """サーファーの立つ点（単位系）。m<0 は一価の面の u=us、m>=0 は斜面のベジェ上（つながるように）。"""
+    if m < 0:
+        P = shape_xs(m)[1:-1]
+        u0 = us
+        h = float(np.interp(u0, P[:, 0], P[:, 1]))
+        h2 = float(np.interp(u0 + 0.04, P[:, 0], P[:, 1]))
+        return np.array([u0, h], np.float32), np.array([0.04, h2 - h], np.float32)
+    sf = 0.25 + 0.40 * float(smooth(m, 0.0, 1.0))
+    (q, d) = face_point(min(m, 1.0), sf)
+    return q, d
+
+
+XS_LIT = core.c('4A9ADA')       # 波の上のほうの水の色
+SHORE = 860                     # 水面と砂浜の交わる x
+
+
+def bed_y(x):
+    x = np.asarray(x, np.float32)
+    deep = core.WL + 700 * np.clip((SHORE - x) / SHORE, 0, None) ** 1.15
+    beach = core.WL - (x - SHORE) * 0.42
+    return np.where(x < SHORE, deep, beach)
+
+
+class XSScene:
+    """真横の断面図。frame(fi) で fi（小数可、0..n-1）の絵を返す。波のパラメータは keys() のキーフレーム。"""
+    KF = [0, 20, 33, 40, 46, 56, 70]
+
+    def __init__(self, n=80):
+        self.n = n
+        WL = core.WL
+        self.bg = core.xs_background(WL)
+        # 砂（青灰色）：斜面＋細い等間隔の線（地層のような線画）
+        xs = np.arange(-20, W + 21, 6, dtype=np.float32)
+        top = bed_y(xs)
+        poly = np.concatenate([np.stack([xs, top], 1), [(W + 20, H + 20), (-20, H + 20)]])
+        sm = mask_poly(poly, H, W)
+        yy = np.arange(H, dtype=np.float32)[:, None]
+        depth = np.clip((yy - bed_y(np.arange(W))[None, :]) / 500, 0, 1)
+        sand = core.SAND[None, None] * (1 - 0.35 * depth[..., None]) + core.c('3E5A73') * 0.35 * depth[..., None]
+        lines = np.zeros((H, W), np.float32)
+        for k in range(1, 9):
+            lines = np.maximum(lines, mask_line(np.stack([xs, top + k * 34 + 6 * k * k * 0.1], 1), H, W, 1) * (0.22 - k * 0.02))
+        sand = sand * (1 - lines[..., None]) + core.FOAM * lines[..., None]
+        edge = mask_line(np.stack([xs, top], 1), H, W, 2) * 0.75
+        self.sand = np.concatenate([sand * (1 - edge[..., None]) + core.FOAM * edge[..., None], sm[..., None]], 2)
+        # 水の色（波の山の部分：水面より上ほど明るい）
+        self.y_top = WL - 300
+        yy = np.arange(self.y_top, WL + 4, dtype=np.float32)[:, None]
+        t = np.clip((WL - yy) / 280, 0, 1)
+        self.wcol = (core.XS_WATER_TOP * (1 - t) + XS_LIT * t)[:, None, :] * np.ones((1, W, 1), np.float32)
+        rn = np.random.default_rng(5).normal(0, 1, (WL + 4 - self.y_top, W)).astype(np.float32)
+        nz = cv2.GaussianBlur(rn, (0, 0), 5) + 0.5 * cv2.GaussianBlur(rn, (0, 0), 1.6)
+        self.noise = nz / (nz.std() * 2.5)
+        self._sim_foam()
+
+    # -------------------------------------------------- 波のキーフレーム
+    def params(self, fi):
+        K = self.KF
+        m = keys(fi, [0, 22, 33, 40], [-1.0, 0.0, 1.0, 1.4])
+        xc = keys(fi, [0, 20, 33, 40, 58], [60, 270, 390, 432, 690], ease_=False)
+        Hh = keys(fi, K, [62, 150, 250, 232, 90, 26, 0])
+        Wd = keys(fi, K, [240, 200, 240, 232, 180, 170, 170])
+        return m, xc, Hh, Wd
+
+    def wave_poly(self, fi):
+        m, xc, Hh, Wd = self.params(fi)
+        P = shape_xs(m)
+        if m > 1.22:
+            # 着水したあとは巻いた中の空気を泡が埋める（輪っかを残さない）：外側の線だけでふさぐ
+            it = 2 + (NB - 1) + (NP - 1)          # リップの先の点
+            P = np.concatenate([P[:it + 1], [(P[it, 0] + 0.05, 0.0), (6.0, 0.0), (6.0, 0.0)]]).astype(np.float32)
+        return np.stack([xc + P[:, 0] * Wd, core.WL - P[:, 1] * Hh], 1), (m, xc, Hh, Wd)
+
+    def surfer(self, fi):
+        """乗っているサーファーの位置・角度・不透明度。崩れる所でやわらかく消える。"""
+        m, xc, Hh, Wd = self.params(min(fi, 40))
+        q, d = surf_point_xs(m)
+        x = xc + q[0] * Wd
+        y = core.WL - q[1] * Hh
+        ang = np.degrees(np.arctan2(-d[1] * Hh, d[0] * Wd))
+        a = 1 - smooth(fi, 36, 44)
+        return x, y, float(np.clip(0.45 * ang, -6, 24)), float(a)
+
+    # -------------------------------------------------- 泡（崩れた所）：一度だけシミュレーションしておく
+    def _sim_foam(self):
+        rng = np.random.default_rng(11)
+        N = 4200
+        t_em = rng.uniform(35.0, 48, N)                 # 生まれるフレーム
+        kind = rng.uniform(0, 1, N)
+        steps = self.n + 4
+        P = np.full((steps, N, 2), np.nan, np.float32)
+        A = np.zeros((steps, N), np.float32)
+        pos = np.zeros((N, 2), np.float32)
+        vel = np.zeros((N, 2), np.float32)
+        alive = np.zeros(N, bool)
+        landed = np.full(N, -1.0, np.float32)
+        lift = rng.uniform(0, 1, N)
+        for fi in range(steps):
+            # 生まれる
+            born = (~alive) & (t_em <= fi) & (landed < 0)
+            if born.any():
+                for j in np.where(born)[0]:
+                    m, xc, Hh, Wd = self.params(t_em[j])
+                    tip = lip_tip(m)
+                    if kind[j] < 0.88:          # リップの先から
+                        u0, h0 = tip[0] + rng.normal(0, 0.06), tip[1] * rng.uniform(0.2, 1.0)
+                    else:                       # 山の上から（しぶき）
+                        u0, h0 = rng.uniform(0.0, tip[0]), rng.uniform(0.75, 1.0)
+                    pos[j] = (xc + u0 * Wd, core.WL - h0 * Hh)
+                    vel[j] = (rng.normal(7.5, 2.4), -abs(rng.normal(6.0, 4.0)) * (0.8 if kind[j] >= 0.88 else 1.0))
+                alive |= born
+            # 動く
+            fl = alive & (landed < 0)
+            vel[fl, 1] += 2.4
+            vel[fl] *= 0.985
+            pos[fl] += vel[fl]
+            sea = alive & (landed < 0) & (pos[:, 1] >= core.WL - 2) & (vel[:, 1] > 0)
+            landed[sea] = fi
+            on = alive & (landed >= 0)
+            if on.any():
+                x = pos[on, 0]
+                v = vel[on, 0]
+                age = fi - landed[on]
+                # 水の上：前へ流れながら遅くなる。砂浜：駆け上がって、戻る
+                onbeach = x > SHORE
+                v = np.where(onbeach, v * 0.90 - 0.55, v * 0.955 + 0.18)
+                v = np.clip(v, -6, 12)
+                x = x + v
+                thick = (4 + 46 * lift[on] ** 1.5) * np.exp(-age / 13.0)
+                surf = np.where(x > SHORE, bed_y(x) - 1, core.WL)
+                pos[on, 0] = x
+                vel[on, 0] = v
+                pos[on, 1] = surf - thick
+            P[fi, alive] = pos[alive]
+            a = np.ones(N, np.float32)
+            a[landed >= 0] = np.exp(-(fi - landed[landed >= 0]) / 16.0)
+            A[fi] = np.where(alive, a, 0)
+        self.fP, self.fA = P, A
+        self.f_w = rng.uniform(0.35, 1.0, N).astype(np.float32)
+
+    def foam(self, fi):
+        i0 = int(np.floor(fi))
+        i1 = min(i0 + 1, self.fP.shape[0] - 1)
+        t = fi - i0
+        P = self.fP[i0] * (1 - t) + self.fP[i1] * t
+        a = self.fA[i0] * (1 - t) + self.fA[i1] * t
+        ok = np.isfinite(P[:, 0]) & (a > 0.01)
+        return P[ok], (a * self.f_w)[ok]
+
+    HOLD_X = 935
+
+    def hold(self, f, fi):
+        """泡が引いたあと（最後の約 0.9 秒）、浜にボードを抱えて立つピクトグラム。小さく首をかしげる。"""
+        hin = self.n - 27
+        a = core.ease((fi - hin) / 8, 'out') if fi >= hin else 0.0
+        if a > 0:
+            tilt = -28 * core.ease((fi - hin - 9) / 7, 'inout') if fi > hin + 9 else 0.0
+            draw_surfer(f, self.HOLD_X, float(bed_y(self.HOLD_X)) - 1, scale=2.6, ang=0, alpha=a, pose='hold', head=tilt)
+        return f
+
+    # -------------------------------------------------- 描画
+    def frame(self, fi, surfer=True, foam=True):
+        WL = core.WL
+        out = self.bg.copy()
+        poly, (m, xc, Hh, Wd) = self.wave_poly(fi)
+        y0 = self.y_top
+        hh = WL + 4 - y0
+        if Hh > 0.5:
+            body = mask_poly(poly, hh, W, y0)
+            # 波の中の細い線（b01 の版画の線と同じ考え方：高さを縮めた断面を何本か）
+            P = np.stack([(poly[:, 0] - xc) / Wd, (WL - poly[:, 1]) / Hh], 1)
+            lines = np.zeros_like(body)
+            for s_ in (0.82, 0.64, 0.46, 0.28):
+                top = P[1:-1]
+                pts = np.stack([xc + top[:, 0] * Wd, WL - top[:, 1] * Hh * s_], 1)
+                lines = np.maximum(lines, mask_line(pts, hh, W, 1, y0) * (0.10 + 0.22 * s_))
+            body3 = body[..., None]
+            reg = out[y0:WL + 4]
+            col = self.wcol
+            wk = float(smooth(m, 1.0, 1.4))
+            if wk > 0:
+                # 崩れたところは白い泡の色に（リップの側から）
+                xx = np.arange(W, dtype=np.float32)[None, :]
+                yy = np.arange(y0, WL + 4, dtype=np.float32)[:, None]
+                ww = wk * smooth(xx, xc + 0.15 * Wd, xc + 0.85 * Wd) * (0.35 + 0.65 * smooth(yy, WL - 0.9 * Hh, WL - 0.1 * Hh))
+                nz = np.roll(self.noise, int(fi * 3), axis=1)
+                ww = (ww * np.clip(0.45 + 0.9 * nz, 0, 1))[..., None]
+                col = col * (1 - ww) + core.FOAM * ww
+            reg[:] = reg * (1 - body3) + col * body3
+            la = (lines * cv2.erode(body, np.ones((3, 3), np.uint8)))[..., None]
+            reg[:] = reg * (1 - la) + core.FOAM * la
+        # 水面の白い線（3px）
+        top = poly[1:-1]
+        top = top[(top[:, 0] > -40) & (top[:, 0] < SHORE + 200)]
+        line = np.concatenate([[(-40, WL)], top, [(SHORE + 200, WL)]]) if Hh > 0.5 else np.array([(-40, WL), (SHORE + 200, WL)], np.float32)
+        lm = mask_line(line, hh, W, 3, y0)[..., None]
+        reg = out[y0:WL + 4]
+        reg[:] = reg * (1 - lm) + core.FOAM * lm
+        # 砂
+        sa = self.sand[..., 3:4]
+        out = out * (1 - sa) + self.sand[..., :3] * sa
+        # 泡
+        if foam:
+            P, a = self.foam(fi)
+            if len(a):
+                ya, yb = WL - 420, WL + 60
+                buf = splat(np.zeros((yb - ya, W), np.float32), P[:, 0], P[:, 1] - ya, a)
+                soft = cv2.GaussianBlur(buf, (0, 0), 1.3)
+                glow = cv2.GaussianBlur(buf, (0, 0), 5.0)
+                al = np.clip(soft * 1.6 + glow * 1.6, 0, 1)[..., None]
+                out[ya:yb] = out[ya:yb] * (1 - al) + core.FOAM * al
+        if surfer:
+            x, y, ang, a = self.surfer(fi)
+            if a > 0:
+                draw_surfer(out, x, y - 3, scale=2.2, ang=ang, alpha=a)
+        return out
+
+
+# ================================================================ b06：水の粒の断面図（沖の水はその場で回るだけ）
+GLOW = core.c('62CCFF')          # エネルギーの光の帯（明るい青）
+
+
+def draw_buoy(frame, x, y, alpha=1.0, scale=1.0):
+    """白いブイ（浮き＋短い柱＋小さな玉）。(x, y) は水面の位置。"""
+    R = int(60 * scale)
+    L = core.SS(s=4, w=2 * R, h=2 * R)
+    d = L.draw
+    col = L.col(core.FOAM, 1.0)
+    cx, cy = R, R
+    d.ellipse(L.box(cx - 17 * scale, cy - 12 * scale, cx + 17 * scale, cy + 10 * scale), fill=col)
+    d.line(L.p([(cx, cy - 10 * scale), (cx, cy - 40 * scale)]), fill=col, width=L.w(3 * scale))
+    d.ellipse(L.box(cx - 5 * scale, cy - 48 * scale, cx + 5 * scale, cy - 38 * scale), fill=col)
+    lay = L.done()
+    M = np.array([[1, 0, x - round(x)], [0, 1, y - round(y)]], np.float32)
+    lay = cv2.warpAffine(lay, M, (2 * R, 2 * R), flags=cv2.INTER_LINEAR)
+    x0, y0 = int(round(x)) - R, int(round(y)) - R
+    xa, ya, xb, yb = max(x0, 0), max(y0, 0), min(x0 + 2 * R, W), min(y0 + 2 * R, H)
+    if xb <= xa or yb <= ya:
+        return frame
+    sub = lay[ya - y0:yb - y0, xa - x0:xb - x0]
+    a = sub[..., 3:4] * alpha
+    frame[ya:yb, xa:xb] = frame[ya:yb, xa:xb] * (1 - a) + sub[..., :3] * a
+    return frame
+
+
+class ParticleSea:
+    """水の粒の断面図。粒は (x0, y0) のまわりを半径 r = A·exp(-深さ/D)·(0.3 + 0.7·帯) で回るだけ（横へは流れない）。
+    明るい青の帯（エネルギー）は群速度 vg で右へ進み、波の山はその 2 倍の速さで帯の中を通り抜ける（深い海の性質）。
+    world 座標で持ち、cam（px）だけ右を見る。"""
+
+    def __init__(self, wl=700, lam=360.0, vg=11.9, A0=24.0, D=115.0, band_x0=-200.0, f_band0=20, sig=170.0):
+        self.wl, self.k = wl, 2 * np.pi / lam
+        self.vg, self.vp = vg, 2 * vg                                # px / frame
+        self.om = self.k * self.vp
+        self.A0, self.D, self.sig = A0, D, sig
+        self.bx0, self.fb0 = band_x0, f_band0
+        gx, gy = 34.0, 34.0
+        xs = np.arange(-400, 3600, gx, dtype=np.float32)
+        ys = np.arange(wl + 22, H + 30, gy, dtype=np.float32)
+        X, Y = np.meshgrid(xs, ys)
+        X = X + (np.arange(len(ys))[:, None] % 2) * gx / 2               # 互い違い
+        self.x0, self.y0 = X.ravel(), Y.ravel()
+        self.dep = self.y0 - wl
+        sky = core.vgrad(core.XS_SKY_TOP, core.XS_SKY_WL, h=wl)
+        water = core.vgrad(core.XS_WATER_TOP, core.XS_WATER_BOT, h=H - wl)
+        self.bg = np.concatenate([sky, water], 0)
+        self.trail = [0.0] + [0.045 * (j + 1) for j in range(15)]       # 秒ではなく「周期の割合」で軌跡を残す
+        # 光の帯の縦の減衰（1/4 解像度）
+        self.qy = np.arange(0, H - wl, 4, dtype=np.float32)
+
+    def band_x(self, fi):
+        return self.bx0 + self.vg * (fi - self.fb0)
+
+    def env(self, x, fi):
+        return np.exp(-((x - self.band_x(fi)) / self.sig) ** 2)
+
+    def orbit(self, x0, dep, fi, base=0.3):
+        r = self.A0 * np.exp(-dep / self.D) * (base + (1 - base) * self.env(x0, fi))
+        th = self.k * x0 - self.om * fi
+        return x0 - r * np.sin(th), self.wl + dep - r * np.cos(th)
+
+    def surface(self, x0, fi):
+        return self.orbit(x0, 0.0 * x0, fi)
+
+    def render(self, fi, cam=0.0, dots=1.0):
+        out = self.bg.copy()
+        wl = self.wl
+        # 光の帯（エネルギー）：水の中だけ、深いほど弱い
+        qx = np.arange(0, W, 4, dtype=np.float32) + cam
+        g = np.exp(-((qx - self.band_x(fi)) / (self.sig * 0.85)) ** 2)[None, :] * np.exp(-self.qy / 300.0)[:, None]
+        g = cv2.resize(g.astype(np.float32), (W, H - wl), interpolation=cv2.INTER_LINEAR)
+        gl = (g * 0.75)[..., None]
+        o = out[wl:]
+        o[:] = o * (1 - gl) + GLOW * gl
+        # 粒と軌跡
+        vis = (self.x0 - cam > -60) & (self.x0 - cam < W + 60)
+        x0, dep, y0 = self.x0[vis], self.dep[vis], self.y0[vis]
+        buf = np.zeros((H - wl + 40, W), np.float32)
+        r = self.A0 * np.exp(-dep / self.D) * (0.3 + 0.7 * self.env(x0, fi))
+        for j, ph in enumerate(self.trail):
+            th = self.k * x0 - self.om * fi + ph * 2 * np.pi
+            X = x0 - r * np.sin(th) - cam
+            Y = dep - r * np.cos(th) + 20
+            w = (1.0 if j == 0 else 0.22 * (1 - j / len(self.trail))) * dots
+            splat(buf, X, Y, np.full(len(X), w, np.float32))
+        dot = np.clip(cv2.GaussianBlur(buf, (0, 0), 1.25) * 4.2, 0, 0.9)[20:20 + H - wl]
+        dot = dot[..., None]
+        o[:] = o * (1 - dot) + core.FOAM * dot
+        # 水面（白 3px）
+        sx = np.arange(-40, W + 40, 6, dtype=np.float32) + cam
+        X, Y = self.surface(sx, fi)
+        pts = np.stack([X - cam, Y], 1)
+        # 水面より上は空：水面の上側を空の色で塗り直す
+        top = np.concatenate([[(-40, 0)], pts, [(W + 40, 0)]])
+        sm = mask_poly(top, wl + 60, W)[..., None]
+        out[:wl + 60] = out[:wl + 60] * (1 - sm) + self._skyext() * sm
+        # 水面の下に少しはみ出た部分（谷）は水の色
+        lm = mask_line(pts, wl + 60, W, 3)[..., None]
+        out[:wl + 60] = out[:wl + 60] * (1 - lm) + core.FOAM * lm
+        return out
+
+    def _skyext(self):
+        if not hasattr(self, '_se'):
+            self._se = core.vgrad(core.XS_SKY_TOP, core.XS_SKY_WL, h=self.wl + 60) 
+            self._se[self.wl:] = core.XS_SKY_WL
+        return self._se

@@ -24,27 +24,25 @@ def render(beat, ctx):
     pcx, pcy = W * 0.46, 1150.0                     # 押し込みの中心（チューブの少し左）
     for i in range(n):
         t = i / core.FPS
-        f, st = wave.render(t)
+        j = i - (n - WHIP)
+        q = (j + 1) / WHIP if j >= 0 else 0.0
+        pan = 300 * q ** 2                          # 最後：カメラを右へ振る
+        f, st = wave.render(t, pan=pan)
         # サーファー：チューブの手前の開いた斜面を、波の進む向き（右下）へ降りていく
         p = core.ease(t / (n / core.FPS), 'smooth')
         zs = 2.06 - 0.10 * p
         sf = 0.50 + 0.16 * p + 0.02 * np.sin(t * 2.3)
-        x, y, ang, hpx = wave.surfer_at(t, zs, sf)
+        x, y, ang, hpx = wave.surfer_at(t, zs, sf, pan=pan)
         _wave.draw_surfer(f, x, y - 3, scale=2.0, ang=float(np.clip(0.42 * ang, 8, 26)))
         # ゆっくり押し込み
         k = 1 + PUSH * core.ease(t / (n / core.FPS), 'smooth')
         M = np.array([[k, 0, pcx * (1 - k)], [0, k, pcy * (1 - k)]], np.float32)
         f = cv2.warpAffine(f, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
         # 文字
-        f = core.put_text(f, lab, min(1.0, (i + 1) / 8))
+        f = core.put_text(f, lab, min(1.0, (i + 1) / 8) * (1 - q))
         if i >= 3:
-            f = core.put_text(f, txt, min(1.0, (i - 2) / 3))
-        # 最後：右への whip（カメラが右へ振られる → 画は左へ流れる）
-        j = i - (n - WHIP)
+            f = core.put_text(f, txt, min(1.0, (i - 2) / 3) * (1 - q))
+        # 最後：右への whip（ぶれは 0 → 120px）
         if j >= 0:
-            q = (j + 1) / WHIP
-            shift = 260 * q ** 2
-            M = np.array([[1, 0, -shift], [0, 1, 0]], np.float32)
-            f = cv2.warpAffine(f, M, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
             f = core.whip(f, 120 * q ** 1.5)
         yield np.clip(f, 0, 1).astype(np.float32)
