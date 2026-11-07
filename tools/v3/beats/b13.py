@@ -56,6 +56,4 @@ def render(beat, ctx):
             f = core.put_text(f, tA, min(1.0, (i - f_ki + 1) / 5) * out)
         if i >= f_ko and out > 0:
             f = core.put_text(f, tB, min(1.0, (i - f_ko + 1) / 4) * out)
-        if i >= f_name:
-            f = core.put_text(f, tN, core.ease((i - f_name + 1) / 6.0))
         yield np.clip(f, 0, 1).astype(np.float32)

@@ -9,8 +9,9 @@ import os
 
 from core import FPS, VO
 
-LEAD, GAP, SILENT11, TAIL = 0.08, 0.12, 1.20, 1.50
-ORDER = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13']
+LEAD, GAP, SILENT11, TAIL = 0.08, 0.06, 1.20, 0.45
+FOOD14 = 2.70             # 14：2F カフェのパスタとケーキ（ナレーションなし・施設名で終わる）
+ORDER = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14']
 
 
 def load():
@@ -20,6 +21,8 @@ def load():
     for k in ORDER:
         if k == '11':
             d = SILENT11
+        elif k == '14':
+            d = FOOD14
         elif k == '13':
             d = LEAD + dur[k] + TAIL
         else:
