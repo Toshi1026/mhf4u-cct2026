@@ -35,9 +35,15 @@ def footage_audio(name, t0, t1):
     return np.frombuffer(p.stdout, '<i2').astype(np.float32) / 32768
 
 
+def decode(path, t0, t1):
+    p = subprocess.run(['ffmpeg', '-v', 'error', '-ss', '%.3f' % t0, '-t', '%.3f' % (t1 - t0), '-i', path,
+                        '-ac', '1', '-ar', str(SR), '-f', 's16le', '-'], capture_output=True, check=True)
+    return np.frombuffer(p.stdout, '<i2').astype(np.float32) / 32768
+
+
 def env_adsr(n, a, r):
     e = np.ones(n, np.float32)
-    na, nr = int(a * SR), int(r * SR)
+    na, nr = min(n, int(a * SR)), min(n, int(r * SR))
     if na:
         e[:na] = np.linspace(0, 1, na) ** 2
     if nr:
@@ -174,13 +180,23 @@ def main():
     # 実写パートの現地の波の音（素材の音は小さいので持ち上げる）
     amb = np.zeros(n, np.float32)
     b12, b13 = B['12'], B['13']
-    # 9636（店内）の音は低い唸りで「車」に聞こえるので使わない。最後まで 9662 の波の音（足りない分は 9671 の波）
-    a1 = footage_audio('IMG_9662.MOV', 0.2, 10.4)
-    a1 -= a1.mean()
-    a1 /= max(1e-6, np.sqrt(np.mean(a1 ** 2)))
+    # 実写パートの環境音：切り替えの瞬間は現地（IMG_9662）の波の音、すぐに効果音ラボ「海岸4」へクロスフェード。
+    # 9662 の後半には国道の車の音が混ざり（PANNs で Vehicle/Traffic）、9636 は店内の唸りなので使わない。
+    # 「海岸4」は earshot rank で「静かな砂浜の波・風なし・車なし」に一番合った（z +5.8）。効果音ラボ：商用可・表記任意。
+    a1 = decode(os.path.join(core.FOOT, 'IMG_9662.MOV'), 1.6, 4.6)
+    a2 = decode(os.path.join(core.OUT, 'sfx', 'lab', 'ambience', 'wave4.mp3'), 2.0, 2.0 + total)
+    for a in (a1, a2):
+        a -= a.mean()
+        a /= max(1e-6, np.sqrt(np.mean(a ** 2)))
     amb_t0 = b12['f0'] / 30 - 0.3
-    seg = a1[:int((total - amb_t0) * SR) + SR]
-    add(amb, seg * env_adsr(len(seg), 0.35, 0.6), amb_t0, 0.06)
+    xf0, xf1 = amb_t0 + 1.6, amb_t0 + 2.6                     # 1 秒かけて現地 → 海岸4
+    seg1 = np.zeros(n, np.float32)
+    add(seg1, a1 * env_adsr(len(a1), 0.35, 0.05), amb_t0, 1.0)
+    seg2 = np.zeros(n, np.float32)
+    add(seg2, a2, amb_t0, 1.0)
+    w = np.clip((t - xf0) / (xf1 - xf0), 0, 1)
+    amb = (seg1 * np.cos(w * np.pi / 2) + seg2 * np.sin(w * np.pi / 2) * 0.8) * 0.06
+    amb *= np.clip((t - amb_t0) / 0.35, 0, 1)
     amb *= np.clip((total - t) / 0.8, 0, 1)
 
     mix = vo * db(-3) + music * db(-17) + sfx * db(-12) + amb * db(-6)
