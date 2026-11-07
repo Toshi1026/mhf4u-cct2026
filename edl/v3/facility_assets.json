@@ -1,0 +1,107 @@
+{
+ "exterior_day": {
+  "idx": 28,
+  "file": "76C67856-9213-47E0-ACDD-8C5ECD799F4C.JPEG",
+  "drive_id": "1BypqnRB76WlU0dJS26GWo8vWlcryxkVK"
+ },
+ "exterior_night": {
+  "idx": 12,
+  "file": "2DE02582-9463-4C5F-A6D1-8D440EA2CF2E.JPEG",
+  "drive_id": "1C-wJbFO6x6s0coYomkOJ0vYkhflm9Po-"
+ },
+ "lawson_entrance": {
+  "idx": 57,
+  "file": "CFF7DD45-7510-4E88-A096-8F90AC7CBF86.JPEG",
+  "drive_id": "12WX-6cls9dde4A8uxmdEOabCm3FVsvHO"
+ },
+ "building_side": {
+  "idx": 56,
+  "file": "CBE2B753-4892-4525-BBEF-6B47AAAAD4BD.JPEG",
+  "drive_id": "1lDtDmCEBN7BjYR6i-OVEzzmfBZM-2ZHI"
+ },
+ "night_sign": {
+  "idx": 41,
+  "file": "A6247107-2DEC-4BED-B889-68ADE9E350CF.JPEG",
+  "drive_id": "116_OLOSA8P-R-HYHCtmUOWbOUk0Nvaex"
+ },
+ "stairs": {
+  "idx": 85,
+  "file": "IMG_5964.HEIC",
+  "drive_id": "1GpPH3rhj6jeAYRzVrBcrnzFwJT3PRq8Q"
+ },
+ "counter": {
+  "idx": 87,
+  "file": "IMG_6002.HEIC",
+  "drive_id": "119f4JQMKAr1GDXOVQTU2FZWLQf8DHd-d"
+ },
+ "sake": {
+  "idx": 101,
+  "file": "IMG_6182.HEIC",
+  "drive_id": "1VZz3V0sXao4bVwdvKyAefwgK8pRDMxnZ"
+ },
+ "produce": [
+  {
+   "idx": 7,
+   "file": "20364374-59BB-4136-BECC-DF10691639F3.JPEG",
+   "drive_id": "1ZPY0WKv30I7hjzRotoEzQwuiKg41YasO"
+  },
+  {
+   "idx": 53,
+   "file": "C317DA24-C796-4202-AACA-081518E1EA07.JPEG",
+   "drive_id": "1TuAdcHPE9TRamtfl6_F7ZDHrBDzGbZkz"
+  },
+  {
+   "idx": 46,
+   "file": "AF321FFF-242A-428C-8CB5-AF35B3E085E3.JPEG",
+   "drive_id": "1jQ4bMk-SEe_d0cT3CdW42SQcOIzR2DKd"
+  },
+  {
+   "idx": 65,
+   "file": "F36C0ED5-6537-4F2B-9954-51B310ABEFF2.JPEG",
+   "drive_id": "1FGadRLzNTRjuzFcEF5arF2pPk77Hu5QS"
+  },
+  {
+   "idx": 42,
+   "file": "A6CA610B-7E1B-4252-82F3-9E3432FF32AA.JPEG",
+   "drive_id": "1G_YcqwEnWQKtiGV7uP_4d89qzxTHTNTe"
+  },
+  {
+   "idx": 108,
+   "file": "IMG_6188.HEIC",
+   "drive_id": "1FoVIKVSQxCkMQGxkeN8-LhYDpA8x0r9G"
+  },
+  {
+   "idx": 55,
+   "file": "C5795DBD-E21C-4929-B280-895FD0017D78.JPEG",
+   "drive_id": "1fZqey1xoys7ROV2r6GIGc7rQ9R0O9uoo"
+  },
+  {
+   "idx": 102,
+   "file": "IMG_6183.HEIC",
+   "drive_id": "15fHDapMny9tvtkV0WzBDXT3dAgdoBj56"
+  },
+  {
+   "idx": 29,
+   "file": "773CDA74-CF6F-4637-9EA4-03DA1B408738.JPEG",
+   "drive_id": "1f6133isJIP8lnT1zap8e1LMlePytr0x6"
+  },
+  {
+   "idx": 31,
+   "file": "8232201C-0004-4CBF-9191-7E884323F3D0.JPEG",
+   "drive_id": "10jj6gMKZfI9XVGBEnGx1XrcXLQhn4FKB"
+  },
+  {
+   "idx": 109,
+   "file": "IMG_6208.HEIC",
+   "drive_id": "1t65depsbYy6PWKvWGuirWkUwBmsvueax"
+  },
+  {
+   "idx": 26,
+   "file": "6AF29A5A-B140-4884-89B3-589DCBF1FBF8.JPEG",
+   "drive_id": "1D1TQSoHy_sa7xAvIkz7bii4dsRGzCK4h"
+  }
+ ],
+ "IMG_9660.MOV": "1k2SZlLCKzKPqgmzeSFsr0AShs5OS6wvk",
+ "IMG_9674.MOV": "1IyntQVtbmbFwz0GlaUSwsUq736Z9ruCA",
+ "IMG_9649.MOV": "1Z-lkf5jX_SFW_osiGrGGWu8KkK4lbzPg"
+}
