@@ -13,9 +13,17 @@ CENTER = (33.30, 133.55)        # 画面の中心に置く緯度・経度（土�
 PX_KM = 4.6                     # 1km あたりの px
 CX, CY = W / 2, 880.0
 SHINKAI = G.SHINKAI             # 土佐市新居
-STEPS = (10, 24, 42, 64, 90, 120, 155, 195)   # 海岸から沖への線の間隔（px）
+STEPS = (40, 120, 210)   # 海岸から沖への線の間隔（px）。津波の波面に見えないよう、本数を減らしてうすく（2026-11-07）
 
 _CACHE = {}
+
+
+def _chaikin(r, it=3):
+    """閉じた輪の角を丸める（Natural Earth 50m の頂点の間隔が、この倍率ではカクカクして見えるため）。"""
+    for _ in range(it):
+        q = np.roll(r, -1, axis=0)
+        r = np.stack([0.75 * r + 0.25 * q, 0.25 * r + 0.75 * q], 1).reshape(-1, 2)
+    return r
 
 
 def to_screen(lat, lon):
@@ -27,7 +35,7 @@ def to_screen(lat, lon):
 def contours():
     if 'm' in _CACHE:
         return _CACHE['m']
-    path = os.path.join(G.CACHE, 'tosa_contours_%d_%d.png' % (int(PX_KM * 10), int(CY)))
+    path = os.path.join(G.CACHE, 'tosa_contours_%d_%d_v3.png' % (int(PX_KM * 10), int(CY)))
     if os.path.exists(path):
         m = cv2.imread(path, cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255
         _CACHE['m'] = m
@@ -38,6 +46,7 @@ def contours():
     for r in G.rings():
         if r[:, 0].max() < 128 or r[:, 0].min() > 139 or r[:, 1].max() < 29 or r[:, 1].min() > 37:
             continue
+        r = _chaikin(np.asarray(r, np.float64))
         x, y = to_screen(r[:, 1], r[:, 0])
         polys.append(np.round(np.stack([x + pad, y + pad], 1) * 16).astype(np.int32))
     cv2.fillPoly(land, polys, 255, lineType=cv2.LINE_AA, shift=4)
@@ -46,7 +55,7 @@ def contours():
     dist = cv2.GaussianBlur(dist, (0, 0), 6)
     m = np.zeros_like(dist)
     for k, d in enumerate(STEPS):
-        a = 0.85 - 0.06 * k
+        a = 0.40 - 0.08 * k
         m = np.maximum(m, np.clip(1 - np.abs(dist - d) / 0.9, 0, 1) * a)
     # 海岸線
     coast = np.zeros_like(land)

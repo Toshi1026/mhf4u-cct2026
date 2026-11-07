@@ -9,6 +9,7 @@ import timeline
 from core import W, H
 from beats import _wave
 
+ENTRY, ENTRY_DIM = 8, 0.72
 
 
 def render(beat, ctx):
@@ -23,4 +24,7 @@ def render(beat, ctx):
             f = core.put_text(f, txt, min(1.0, (i - f_txt + 1) / 4))
         if i < 8:
             f = core.zoom_blur(f, 0.15 * (1 - i / 8) ** 2, cy=core.WL)
+        if i < ENTRY:
+            # b04 の最後（暗い地球）から明るい断面図へ：明るさの段差を 0.14 → 0.02 以下に抑え、8 フレームで戻す
+            f = f * (ENTRY_DIM + (1 - ENTRY_DIM) * core.ease(i / ENTRY, 'inout'))
         yield np.clip(f, 0, 1).astype(np.float32)

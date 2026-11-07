@@ -22,6 +22,7 @@ def render(beat, ctx):
     n = beat['n']
     mf = lambda k: timeline.mora_frame(beat, k)
     f_ji, f_ki = mf(4), mf(11)                  # ジ（じそく）／キ（キロ）
+    f_note = mf(8)                              # 「ン」：注記を少し早く出して、縮む前に約 0.5 秒読めるように
     b7 = next(b for b in timeline.load() if b['key'] == '07')
     st = b07.static()
     t_main = U.Patch([dict(text='時速 約40km', x=W / 2, y=1078, size=100, weight='Bold', hl='40km')])
@@ -51,7 +52,7 @@ def render(beat, ctx):
         # 文字（メーターが縮むときに先に消す）
         tout = 1 - core.ease((i - s0 + 2) / 5.0)
         f = t_main.put(f, core.ease((i - f_ji + 1) / 6) * tout)
-        f = t_note.put(f, core.ease((i - f_ki - 1) / 6) * tout)
+        f = t_note.put(f, core.ease((i - f_note + 1) / 6) * tout)
         # 最後の数フレーム：画面全体のズームのぼかし（アイコンはぼかさずに上へ重ねる）
         if i >= n - 5:
             kk = (i - (n - 5) + 1) / 5.0

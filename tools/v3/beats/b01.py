@@ -19,8 +19,9 @@ def render(beat, ctx):
         dict(text='世界記録の波で', x=W / 2, y=600, size=96, weight='Bold', hl='世界記録の波'),
         dict(text='高知まで行けるか', x=W / 2, y=720, size=96, weight='Bold'),
     ])
-    lab = core.text_layer([dict(text='ナザレ（ポルトガル）', x=core.SAFE[0] + 14, y=1222, size=30, weight='Medium',
-                                anchor='ls', track=0.06, shadow=0.8)])
+    # 右下の沖の海の上（暗い青で読みやすく、サーファー・しぶきと重ならない）
+    lab = core.text_layer([dict(text='ナザレ（ポルトガル）', x=core.SAFE[2] - 14, y=1232, size=30, weight='Medium',
+                                anchor='rs', track=0.06, shadow=0.8)])
     pcx, pcy = W * 0.46, 1150.0                     # 押し込みの中心（チューブの少し左）
     for i in range(n):
         t = i / core.FPS

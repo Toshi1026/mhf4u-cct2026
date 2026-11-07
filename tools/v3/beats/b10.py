@@ -77,11 +77,12 @@ def render(beat, ctx):
         f = bg.copy()
         j = i - (n - WIN)
         q = (j + 1) / WIN if j >= 0 else 0.0
-        # 最後：土佐湾の線画をごくうすく（線の最大でも 0.16）
+        # 最後：土佐湾の線画をごくうすく（線の最大でも 0.14）
         if q > 0:
-            la = (0.16 * core.ease(q, 'in') * lines)[..., None]
+            la = (0.14 * core.ease(q, 'in') * lines)[..., None]
             f = f * (1 - la) + core.FOAM * la
-        out = 1 - core.ease(q)
+        # 文字は「ニチ」を言い終えるまで残し、最後の 6 フレームで消す
+        out = 1 - core.ease((i - (n - 6) + 1) / 6, 'in')
         # 「答え」
         a = core.ease((i - f_ko + 1) / 6) * out
         f = t_ans.put(f, a)

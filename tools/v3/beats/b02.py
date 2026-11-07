@@ -142,6 +142,7 @@ class Scene:
     def __init__(self, n):
         self.bg = core.xs_background(WL)
         self.blay, self.bmask, self.bx0, self.by0 = _building()
+        self.bbody = np.clip(sum(self.bmask), 0, 1)
         hh = WL + 4 - Y0
         yy = np.arange(Y0, WL + 4, dtype=np.float32)[:, None]
         t = np.clip((WL - yy) / 360, 0, 1)
@@ -193,6 +194,9 @@ class Scene:
     def building(self, out, lit):
         h, w = self.blay.shape[:2]
         sub = out[self.by0:self.by0 + h, self.bx0:self.bx0 + w]
+        # 消えている階はわずかに沈んだ青（点灯した階との差がはっきり見えるように）
+        base = self.bbody[..., None] * 0.30
+        sub[:] = sub * (1 - base) + core.DEEP * base
         for k, a in enumerate(lit):
             if a > 0.002:
                 m = self.bmask[k][..., None] * a
@@ -222,7 +226,7 @@ def render(beat, ctx):
     f_stop = timeline.mora_frame(beat, 23)          # 「ニイイチ」の「チ」
     assert beat['moras'][23][0] == 'チ', beat['moras'][23]
     f_go = 12                                       # 立ち上がり始め（whip のあと）
-    f_note = f_stop + 5
+    f_note = f_stop - 8                             # 8〜9階が点くころ（読む時間を 1 秒ほど確保）
     cnt = Counter(W / 2, 744)
     t_g = U.Patch([dict(text='ギネス世界記録', x=W / 2, y=566, size=44, weight='Medium', track=0.14)])
     t_n = U.Patch([dict(text='マンションなら8〜9階くらい', x=W / 2, y=1226, size=34, weight='Medium', track=0.06)])
@@ -247,7 +251,7 @@ def render(beat, ctx):
                 lit.append(0.0)
             else:
                 g = i - lit_on[k]
-                lit.append(0.48 * core.ease((g + 1) / 3, 'out') + 0.20 * np.exp(-g / 5.0) * (g >= 0))
+                lit.append(0.40 * core.ease((g + 1) / 3, 'out') + 0.18 * np.exp(-g / 5.0) * (g >= 0))
         sc.building(out, lit)
         # 頂の高さ → 建物まで細い点線（いまの高さ）
         ytop = WL - hm * PXM
@@ -264,7 +268,7 @@ def render(beat, ctx):
                       shadow=0.45)
         # 最初：b01 の右への whip が収まる（絵は右から左へ流れ込んで止まる）
         if i < WIN:
-            k = core.ease((i + 1) / WIN, 'out')
+            k = core.ease(i / WIN, 'out')            # 0 フレーム目は b01 の最後と同じぶれ（120px）
             dx = 220 * (1 - k)
             M = np.float32([[1, 0, dx], [0, 1, 0]])
             out = cv2.warpAffine(out, M, (W, H), borderMode=cv2.BORDER_REPLICATE)
@@ -274,7 +278,7 @@ def render(beat, ctx):
         # 文字
         j = i - (n - WIN)
         q_out = (j + 1) / WIN if j >= 0 else 0.0
-        ta = 1 - core.ease(q_out * 1.4)
+        ta = 1 - core.ease((i - (n - WIN - 5)) / 6)   # 文字は whip が強くなる前に消す（ぶれた文字の残像を出さない）
         out = t_g.put(out, core.ease((i - WIN + 1) / 6) * ta)
         out = cnt.put(out, hm, core.ease((i - WIN + 1) / 6) * ta)
         out = t_n.put(out, core.ease((i - f_note + 1) / 6) * ta)

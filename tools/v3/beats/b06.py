@@ -45,7 +45,9 @@ def render(beat, ctx):
     x_land = SURF_X + 70
     vg = (x_land - (-260.0)) / (land - DIVE0)
     sea = _wave.ParticleSea(wl=WLP, vg=vg, band_x0=-260.0, f_band0=DIVE0)
-    txtA = core.text_layer([dict(text='乗るのは エネルギー', x=W / 2, y=560, size=96, weight='Bold', hl='エネルギー')])
+    txtA = core.text_layer([dict(text='乗るのは エネルギー', x=W / 2, y=470, size=96, weight='Bold', hl='エネルギー')])
+    # b05 の文字（同じ位置・同じ大きさ）を巻き戻しの最初の数フレームで消す（カットで急に消えないように）
+    txt05 = core.text_layer([dict(text='浅い所で 崩れる', x=W / 2, y=620, size=96, weight='Bold', hl='崩れる')])
     txtB = core.text_layer([dict(text='沖の水は、ほぼその場で回るだけ', x=W / 2, y=1200, size=44, weight='Medium', shadow=0.9)])
     # 文字 B の後ろの粒を少し暗くするための、やわらかい帯
     yy = np.arange(H, dtype=np.float32)[:, None]
@@ -69,6 +71,8 @@ def render(beat, ctx):
             prev = fi
             f = xs.frame(fi)
             xs.hold(f, fi)
+            if i < 4:
+                f = core.put_text(f, txt05, 1 - core.ease((i + 1) / 4))
             f = _tape(f, speed, i)
             yield np.clip(f, 0, 1).astype(np.float32)
             continue
@@ -92,7 +96,7 @@ def render(beat, ctx):
                 p = (i - f_no) / HOP
                 ox, oy = sea.surface(np.array([SURF_X], np.float32), f_no)
                 sx = float(ox[0]) + (ex - float(ox[0])) * p
-                sy = float(oy[0]) + (ey - float(oy[0])) * p - 110 * 4 * p * (1 - p)
+                sy = float(oy[0]) + (ey - float(oy[0])) * p - 85 * 4 * p * (1 - p)
                 ang = -12 * np.sin(np.pi * p)
             else:
                 sx, sy = ex, ey
@@ -110,14 +114,17 @@ def render(beat, ctx):
             bot = cv2.warpAffine(g, M2, (W, H), borderMode=cv2.BORDER_REPLICATE)
             g = top * (1 - a) + bot * a
             g = core.whip(g, 70 * np.sin(np.pi * p), axis=0)
-        # 文字
+        # 文字（最後のズームのぼかしが強くなる前に消す：ぶれた文字の残像を出さない）
+        tout = 1 - core.ease((i - (n - OUTB - 4)) / 6)
         if i >= f_o:
             g = g * (1 - dimB * min(1.0, (i - f_o + 1) / 4))
         if i >= f_e:
-            g = core.put_text(g, txtA, min(1.0, (i - f_e + 1) / 4))
+            g = core.put_text(g, txtA, min(1.0, (i - f_e + 1) / 4) * tout)
         if i >= f_o:
-            g = core.put_text(g, txtB, min(1.0, (i - f_o + 1) / 4))
+            g = core.put_text(g, txtB, min(1.0, (i - f_o + 1) / 4) * tout)
         j = i - (n - OUTB)
         if j >= 0:
             g = core.zoom_blur(g, 0.2 * ((j + 1) / OUTB) ** 1.5)
+            # b07 の暗い地図へ：明るさを少しずつ下げて、カットの段差（0.18）を小さくする
+            g = g * (1 - 0.42 * core.ease((j + 1) / OUTB, 'in'))
         yield np.clip(g, 0, 1).astype(np.float32)
