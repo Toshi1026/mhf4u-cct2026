@@ -1,0 +1,250 @@
+"""案B の CG の部品：オリジナルの悪役ピクトグラム、画面の端から入る拳、キラーンの光、小さな板（スプライト）の貼り付け。
+
+悪役は core.surfer と同じ描き方（白の太い線＋丸い頭、顔なし）に、小さなマントだけを足したもの。
+既存のキャラクターに似せない：触角・角・特定の色や衣装はなし。拳は白い線画のミトン形（指は描かない）。
+"""
+import cv2
+import numpy as np
+
+import core
+from core import W, H
+
+SHADOW = core.c('062A4E')
+CAPE = core.c('BFDCF0')            # マント：白に近い淡い青（体の白と見分ける）
+
+
+def _R(ang_deg):
+    r = np.deg2rad(ang_deg)
+    return np.array([[np.cos(r), -np.sin(r)], [np.sin(r), np.cos(r)]])
+
+
+# ---------------------------------------------------------------- 小さな板に描いて貼る
+def put(frame, draw_fn, x, y, R, s=4, alpha=1.0, shadow=0.0, shadow_px=2.0, glow=0.0, glow_px=6.0, glow_rgb=None):
+    """(x, y) を中心に 2R×2R の小さな SS 板を作り、draw_fn(L, cx, cy) で描いて frame に重ねる（サブピクセルの位置に対応）。
+    shadow：ごく弱い暗いにじみ（明るい空でも白が読めるように）。glow：同じ形をぼかした白いにじみ（キラーン用）。"""
+    if alpha <= 0.003:
+        return frame
+    R = int(np.ceil(R))
+    L = core.SS(s=s, w=2 * R, h=2 * R)
+    fx, fy = x - round(x), y - round(y)
+    draw_fn(L, R + fx, R + fy)
+    lay = L.done()
+    x0, y0 = int(round(x)) - R, int(round(y)) - R
+    xa, ya = max(x0, 0), max(y0, 0)
+    xb, yb = min(x0 + 2 * R, frame.shape[1]), min(y0 + 2 * R, frame.shape[0])
+    if xb <= xa or yb <= ya:
+        return frame
+    sub = lay[ya - y0:yb - y0, xa - x0:xb - x0]
+    reg = frame[ya:yb, xa:xb]
+    if shadow:
+        sa = cv2.GaussianBlur(np.ascontiguousarray(sub[..., 3]), (0, 0), shadow_px)[..., None] * alpha * shadow
+        reg = reg * (1 - sa) + SHADOW * sa
+    if glow:
+        ga = cv2.GaussianBlur(np.ascontiguousarray(sub[..., 3]), (0, 0), glow_px)[..., None] * alpha * glow
+        g = core.FOAM if glow_rgb is None else glow_rgb
+        reg = reg + (g - reg) * np.clip(ga, 0, 1)
+    a = sub[..., 3:4] * alpha
+    frame[ya:yb, xa:xb] = reg * (1 - a) + sub[..., :3] * a
+    return frame
+
+
+# ---------------------------------------------------------------- 悪役（顔のない白いピクトグラム＋小さなマント）
+def villain(L, x, y, scale=1.0, ang=0.0, pose='stand', t=0.0, rgb=None, alpha=1.0, squash=1.0):
+    """(x, y) は胴のまんなか。scale=1 で全長約 32px（足 +16、頭のてっぺん -16）。ang は度（時計回り）。
+    pose='stand'：両手を腰に当てて胸を張る（悪役のお約束のポーズ）／'fly'：手足を広げて飛ばされる。
+    t：マントのはためき（秒）。squash：殴られた瞬間の横のつぶれ（1＝なし）。"""
+    rgb = core.FOAM if rgb is None else rgb
+    col = L.col(rgb, alpha)
+    ccol = L.col(CAPE, alpha * 0.92)               # マントは少しだけ透かして、体と見分けられるように
+    Rm = _R(ang)
+    S = np.array([[squash, 0], [0, 1 / max(squash, 0.6) ** 0.5]])
+
+    def T(pts):
+        return L.p([tuple(Rm @ (S @ np.array(q, float)) * scale + (x, y)) for q in pts])
+
+    d = L.draw
+    lw = lambda v: L.w(v * scale)
+    fl = np.sin(t * 9.0) * 1.2 + np.sin(t * 15.0 + 1.0) * 0.6        # はためき
+    if pose == 'stand':
+        # マント：肩から右後ろへ、ひざの高さまで（短め）
+        d.polygon(T([(-2.4, -8.0), (2.4, -8.0), (8.0 + fl * 0.3, 0.0), (13.0 + fl, 10.5),
+                     (9.0 + fl * 0.7, 9.4), (5.5 + fl * 0.5, 11.6), (1.5, 10.6), (-3.5, 11.2), (-7.0, 10.0),
+                     (-6.0, 1.0)]), fill=ccol)
+        d.line(T([(-4.2, 16), (0, 4), (4.2, 16)]), fill=col, width=lw(2.7), joint='curve')         # 脚
+        d.line(T([(0, 4.5), (0, -7.5)]), fill=col, width=lw(3.4))                                 # 胴
+        d.line(T([(0, -6.0), (-6.2, -1.2), (-1.4, 2.6)]), fill=col, width=lw(2.2), joint='curve')  # 腰に手
+        d.line(T([(0, -6.0), (6.2, -1.2), (1.4, 2.6)]), fill=col, width=lw(2.2), joint='curve')
+        hx, hy = Rm @ (S @ np.array([0.0, -12.2])) * scale + (x, y)
+    else:
+        # マント：体の下側へ長くたなびく
+        d.polygon(T([(-2.6, -7.6), (2.6, -7.6), (8.0 + fl, 9.0), (6.0 + fl, 18.0), (2.0 + fl * 0.6, 15.5),
+                     (-2.0 + fl * 0.4, 19.0), (-6.5 + fl * 0.3, 12.0)]), fill=ccol)
+        d.line(T([(-7.0, 14.5), (0, 4), (6.5, 15.0)]), fill=col, width=lw(2.7), joint='curve')
+        d.line(T([(0, 4.5), (0, -7.5)]), fill=col, width=lw(3.4))
+        d.line(T([(-9.5, -12.5), (0, -6.0), (9.5, -12.0)]), fill=col, width=lw(2.2), joint='curve')
+        hx, hy = Rm @ (S @ np.array([0.0, -12.2])) * scale + (x, y)
+    rr = 3.7 * scale
+    d.ellipse(L.box(hx - rr, hy - rr, hx + rr, hy + rr), fill=col)
+
+
+def put_villain(frame, x, y, scale, ang=0.0, pose='stand', t=0.0, alpha=1.0, squash=1.0, shadow=0.35):
+    if scale * 34 < 5:                          # ここまで小さいと形は読めない：点にする
+        return put_dot(frame, x, y, max(1.6, scale * 8), alpha)
+    R = 24 * scale + 6
+    return put(frame, lambda L, cx, cy: villain(L, cx, cy, scale, ang, pose, t, alpha=1.0, squash=squash),
+               x, y, R, alpha=alpha, shadow=shadow, shadow_px=max(1.0, 1.1 * scale))
+
+
+def put_dot(frame, x, y, r, alpha=1.0):
+    def fn(L, cx, cy):
+        L.draw.ellipse(L.box(cx - r, cy - r, cx + r, cy + r), fill=L.col(core.FOAM))
+    return put(frame, fn, x, y, r + 6, alpha=alpha, glow=0.35, glow_px=r * 1.2)
+
+
+# ---------------------------------------------------------------- 拳（白い線画のミトン。腕は画面の外へ）
+FIST_FILL = core.c('D3E6F4')
+
+
+def _superellipse(a, b, n=2.6, k=72, cx=0.0, cy=0.0):
+    t = np.linspace(0, 2 * np.pi, k, endpoint=False)
+    c, s = np.cos(t), np.sin(t)
+    return np.stack([cx + a * np.sign(c) * np.abs(c) ** (2 / n), cy + b * np.sign(s) * np.abs(s) ** (2 / n)], 1)
+
+
+def _ellipse(a, b, cx, cy, k=48):
+    t = np.linspace(0, 2 * np.pi, k, endpoint=False)
+    return np.stack([cx + a * np.cos(t), cy + b * np.sin(t)], 1)
+
+
+_FIST = None
+
+
+def _fist_shapes():
+    """拳の形（ローカル座標、+x が殴る向き、単位 px）。外形の重なりは中で消える（線画の外周だけが残る）。"""
+    global _FIST
+    if _FIST is None:
+        body = _superellipse(64, 54, 3.4, 120)
+        knuck = [_ellipse(15, 14.5, 52, yy, 32) for yy in (-38.0, -12.5, 13.0, 38.5)]
+        cuff = np.array([(-104, -58), (-62, -58), (-62, 58), (-104, 58)], float)
+        arm = np.array([(-1300, -98), (-104, -48), (-104, 48), (-1300, 98)], float)
+        _FIST = dict(arm=arm, cuff=cuff, body=body, k0=knuck[0], k1=knuck[1], k2=knuck[2], k3=knuck[3])
+    return _FIST
+
+
+def fist(L, x, y, ang, scale=1.0, alpha=1.0, ox=0.0, oy=0.0):
+    """(x, y)：拳のまんなか（画面座標）、ang：殴る向き（度、0＝右、負＝上向き）。L の原点は画面の (ox, oy)。
+    横から見たミトン形のグー：前に4本の指のふくらみ、上に親指、手首に袖口。腕は画面の外へ太くなる（手前から来る）。"""
+    sh = _fist_shapes()
+    Rm = _R(ang)
+
+    def T(P):
+        P = np.asarray(P, float) @ Rm.T * scale + (x - ox, y - oy)
+        return L.p([tuple(q) for q in P])
+
+    d = L.draw
+    lw = 4.6 * scale
+    line = L.col(core.FOAM, alpha)
+    fill = L.col(FIST_FILL, alpha * 0.72)
+    order = list(sh.keys())
+    # 1) 外周：形の線を太く白で
+    for k in order:
+        P = sh[k]
+        d.polygon(T(P), fill=line)
+        d.line(T(np.vstack([P, P[:1]])), fill=line, width=L.w(2 * lw), joint='curve')
+    # 2) 中：塗り（重なった内側の線を消す）
+    for k in order:
+        d.polygon(T(sh[k]), fill=fill)
+    # 3) 細部：指の境目、親指、袖口の線
+    det = L.w(lw * 0.8)
+    for yy in (-25.5, 0.0, 25.5):
+        d.line(T([(16, yy + 2), (40, yy), (58, yy - 0.5)]), fill=line, width=det, joint='curve')
+    th = np.linspace(np.pi * 0.05, np.pi * 1.95, 40)
+    thumb = np.stack([4 + 34 * np.cos(th), -33 + 12 * np.sin(th)], 1)
+    thumb = thumb[(thumb[:, 1] > -40) | (thumb[:, 0] > -20)]
+    d.line(T(thumb), fill=line, width=det, joint='curve')
+    d.line(T([(-62, -58), (-62, 58)]), fill=line, width=det)
+
+
+def put_fist(frame, x, y, ang, scale=1.0, alpha=1.0):
+    """拳を画面に重ねる。腕は画面の外へ伸びるので、画面と交わる範囲だけの板を作る。"""
+    if alpha <= 0.003:
+        return frame
+    Rm = _R(ang)
+    pts = np.vstack([v for v in _fist_shapes().values()])
+    pts = np.clip(pts, -900, None)
+    P = pts @ Rm.T * scale + (x, y)
+    x0, y0 = int(max(0, np.floor(P[:, 0].min() - 14))), int(max(0, np.floor(P[:, 1].min() - 14)))
+    x1, y1 = int(min(W, np.ceil(P[:, 0].max() + 14))), int(min(H, np.ceil(P[:, 1].max() + 14)))
+    if x1 <= x0 or y1 <= y0:
+        return frame
+    L = core.SS(s=3, w=x1 - x0, h=y1 - y0)
+    fist(L, x, y, ang, scale, 1.0, ox=x0, oy=y0)
+    lay = L.done()
+    reg = frame[y0:y1, x0:x1]
+    sa = cv2.GaussianBlur(np.ascontiguousarray(lay[..., 3]), (0, 0), 6)[..., None] * 0.30 * alpha
+    reg = reg * (1 - sa) + SHADOW * sa
+    a = lay[..., 3:4] * alpha
+    frame[y0:y1, x0:x1] = reg * (1 - a) + lay[..., :3] * a
+    return frame
+
+
+# ---------------------------------------------------------------- キラーン（小さな4つ角の星。1回だけ、やわらかく）
+def glint(L, cx, cy, r, ang=0.0, alpha=1.0):
+    d = L.draw
+    Rm = _R(ang)
+
+    def star(rad, waist, col):
+        pts = []
+        for k in range(8):
+            th = np.pi / 4 * k
+            rr = rad if k % 2 == 0 else rad * waist
+            pts.append(Rm @ np.array([np.cos(th), np.sin(th)]) * rr + (cx, cy))
+        d.polygon(L.p([tuple(p) for p in pts]), fill=col)
+
+    # 斜めの小さな星（ACC）→ 縦横の星（ACC）→ 白い芯
+    Rd = _R(ang + 45)
+    pts = []
+    for k in range(8):
+        th = np.pi / 4 * k
+        rr = r * 0.42 if k % 2 == 0 else r * 0.06
+        pts.append(Rd @ np.array([np.cos(th), np.sin(th)]) * rr + (cx, cy))
+    d.polygon(L.p([tuple(p) for p in pts]), fill=L.col(core.ACC, alpha * 0.7))
+    star(r, 0.11, L.col(core.ACC, alpha))
+    star(r * 0.55, 0.16, L.col(core.FOAM, alpha))
+    rc = max(1.2, r * 0.09)
+    d.ellipse(L.box(cx - rc, cy - rc, cx + rc, cy + rc), fill=L.col(core.FOAM, alpha))
+
+
+def put_glint(frame, x, y, r, ang=0.0, alpha=1.0):
+    if r < 0.8 or alpha <= 0.003:
+        return frame
+    return put(frame, lambda L, cx, cy: glint(L, cx, cy, r, ang), x, y, r * 1.6 + 8, alpha=alpha,
+               glow=0.45, glow_px=max(2.0, r * 0.22), glow_rgb=core.ACC)
+
+
+def glint_env(k, rise=6, hold=3, decay=16.0):
+    """光の大きさ（0..1）。k は光りはじめからのフレーム数。すっと出て、ゆっくり消える（点滅しない）。"""
+    if k < 0:
+        return 0.0
+    if k < rise:
+        return core.ease((k + 1) / rise, 'out')
+    if k < rise + hold:
+        return 1.0
+    return float(np.exp(-(k - rise - hold) / decay))
+
+
+# ---------------------------------------------------------------- 線（点線・折れ線）
+def dashed(L, P, col, width, dash=10.0, gap=8.0, phase=0.0):
+    """折れ線 P（画面座標の (N,2)）を点線で。L は SS（原点は画面の左上）。"""
+    P = np.asarray(P, float)
+    seg = np.hypot(*np.diff(P, axis=0).T)
+    s = np.concatenate([[0], np.cumsum(seg)])
+    tot = s[-1]
+    a = -phase % (dash + gap) - (dash + gap)
+    while a < tot:
+        b0, b1 = max(a, 0), min(a + dash, tot)
+        if b1 > b0:
+            xs = np.interp(np.linspace(b0, b1, max(2, int((b1 - b0) / 4) + 2)), s, P[:, 0])
+            ys = np.interp(np.linspace(b0, b1, max(2, int((b1 - b0) / 4) + 2)), s, P[:, 1])
+            L.draw.line(L.p(list(zip(xs, ys))), fill=col, width=width, joint='curve')
+        a += dash + gap
