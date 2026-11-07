@@ -22,9 +22,11 @@ ENTRY, ENTRY_DIM = 12, 0.36
 def timing(beat):
     mo = beat['moras']
     # タカサワ ニセンゴヒャク メエトル シタカラワ ホボテン キラアン
-    assert mo[4][0] == 'ニ' and mo[13][0] == 'ル' and mo[14][0] == 'シ' and mo[19][0] == 'ホ' and mo[23][0] == 'キ', mo
+    # 2026-11-07：「キラーン」はナレーションから外し、効果音にした。光るのは「ほぼ点」の言い終わりの約0.35秒後
+    assert mo[4][0] == 'ニ' and mo[13][0] == 'ル' and mo[14][0] == 'シ' and mo[19][0] == 'ホ', mo
     mf = lambda k: timeline.mora_frame(beat, k)
-    return dict(start=4, san=mf(4), ru=mf(13), shi=mf(14), ho=mf(19), ki=mf(23), n=beat['n'])
+    ki = min(mf(len(mo) - 1) + 10, beat['n'] - 14)
+    return dict(start=4, san=mf(4), ru=mf(13), shi=mf(14), ho=mf(19), ki=ki, n=beat['n'])
 
 
 def villain_u(i, T):

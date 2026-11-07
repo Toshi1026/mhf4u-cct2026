@@ -68,9 +68,8 @@ def main():
     A.add(sfx, lab('whoosh/sword-gesture1.mp3'), 0.25, 0.55)            # 拳 → 飛んでいく
     k1 = mora_t(B['01'], 'カ')                                          # 「かなた」の頃にキラーン
     A.add(sfx, lab('chimes/kira2.mp3'), (k1 or 2.0) + 0.25, 0.35)
-    k6 = mora_t(B['06'], 'キ')
-    if k6:
-        A.add(sfx, lab('chimes/kira2.mp3'), k6, 0.4)
+    from cutB.beats import b06 as B06                                   # キラーン（効果音）＝ b06 の光る瞬間
+    A.add(sfx, lab('chimes/kira2.mp3'), (B['06']['f0'] + B06.timing(B['06'])['ki']) / 30, 0.45)
     A.add(sfx, lab('water/bath-thapon1.mp3'), tT + 0.05, 0.45)          # 着水
 
     amb = np.zeros(n, np.float32)

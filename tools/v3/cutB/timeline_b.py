@@ -7,11 +7,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core import FPS, OUT   # noqa: E402
 
-VO = os.path.join(OUT, 'vo_B')
+VO = os.environ.get('MAZE_VO_B', os.path.join(OUT, 'vo_B_aida'))   # 2026-11-07 声は AivisSpeech 阿井田茂（候補B）
 LEAD, GAP = 0.08, 0.08
 ORDER = ['01', '02', '03', '04', '05', '06', '07', 'T', '08', '09', '10', '11', '12', '13']
 FIXED = {'T': 1.20, '13': 1.80}                    # ナレーションなし：T＝着水→CG から実写へ、13＝施設名のエンドカード
-MIN = {'08': 3.10, '10': 2.60, '11': 3.00, '12': 3.00}   # 画を見せるのに要る最低の長さ
+MIN = {'06': 3.90, '08': 3.10, '10': 2.60, '11': 3.00, '12': 3.00}   # 06 は言い終わりのあとにキラーン（効果音）の間   # 画を見せるのに要る最低の長さ
 
 
 def load():
