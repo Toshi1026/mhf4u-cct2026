@@ -91,7 +91,9 @@ def pad(total):
 def kick(n=0.35):
     tt = np.arange(int(n * SR)) / SR
     f = 50 + 70 * np.exp(-tt * 30)
-    return (np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-tt * 9)).astype(np.float32)
+    v = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-tt * 9)
+    v[-int(0.03 * SR):] *= np.linspace(1, 0, int(0.03 * SR))      # 切り口のプチ音を防ぐ
+    return v.astype(np.float32)
 
 
 def bell(n=2.4, f=hz(86)):
@@ -150,8 +152,8 @@ def main():
     w03 = np.clip(np.minimum((t - t03a) / 0.15, (t03b - t) / 0.2), 0, 1)
     music = music * (1 - w03) + lp * w03 * 1.3
     # 09 の終わりに 0.2 秒、全部の音を抜く（答えの前の間）
-    gap = (t > t09e - 0.2) & (t < t09e + 0.02)
-    gain[gap] = 0
+    ramp = 0.008                                 # 出入りに 8ms の傾斜（切り口のプチ音を防ぐ）
+    gain *= np.clip(np.maximum((t09e - 0.2 - t) / ramp, (t - t09e - 0.02) / ramp), 0, 1)
     gain *= np.where(t > t12, db(-7), 1.0) * np.clip((total - t) / 1.2, 0, 1) ** 0.5
     music = music * gain
 
@@ -172,19 +174,19 @@ def main():
     # 実写パートの現地の波の音（素材の音は小さいので持ち上げる）
     amb = np.zeros(n, np.float32)
     b12, b13 = B['12'], B['13']
-    a1 = footage_audio('IMG_9662.MOV', 1.6, 4.6)
-    a2 = footage_audio('IMG_9636.MOV', 1.4, 5.4)
-    for a in (a1, a2):
-        a -= a.mean()
+    # 9636（店内）の音は低い唸りで「車」に聞こえるので使わない。最後まで 9662 の波の音（足りない分は 9671 の波）
+    a1 = footage_audio('IMG_9662.MOV', 0.2, 10.4)
+    a1 -= a1.mean()
     a1 /= max(1e-6, np.sqrt(np.mean(a1 ** 2)))
-    a2 /= max(1e-6, np.sqrt(np.mean(a2 ** 2)))
     amb_t0 = b12['f0'] / 30 - 0.3
-    seg = np.concatenate([a1, a2])
+    seg = a1[:int((total - amb_t0) * SR) + SR]
     add(amb, seg * env_adsr(len(seg), 0.35, 0.6), amb_t0, 0.06)
     amb *= np.clip((total - t) / 0.8, 0, 1)
 
     mix = vo * db(-3) + music * db(-17) + sfx * db(-12) + amb * db(-6)
     mix = np.tanh(mix * 1.1) / 1.1
+    fi = int(0.005 * SR)
+    mix[:fi] *= np.linspace(0, 1, fi)
     st = np.stack([mix, mix], axis=1)
     pk = np.abs(st).max()
     st = st / pk * db(-1.5)

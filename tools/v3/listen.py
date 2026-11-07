@@ -82,13 +82,13 @@ def loudness(x, path):
     mono = x.mean(axis=1)
     r = dict(ffmpeg=ebur128(path))
     try:
-        r['pyln_I'] = float(meter.integrated_loudness(x if x.shape[1] > 1 else mono))
+        r['pyln_I'] = float(meter.integrated_loudness(x))
     except Exception:
         r['pyln_I'] = None
     r['sample_peak'] = db(np.abs(x).max())
     r['clips'] = int((np.abs(x) >= 0.999).sum())
     r['dc'] = float(mono.mean())
-    r['corr'] = float(np.corrcoef(x[:, 0], x[:, 1])[0, 1]) if x.shape[1] > 1 and x[:, 0].std() > 0 and x[:, 1].std() > 0 else None
+    r['corr'] = None if x.shape[1] == 1 else float(np.corrcoef(x[:, 0], x[:, 1])[0, 1]) if x.shape[1] > 1 and x[:, 0].std() > 0 and x[:, 1].std() > 0 else None
     r['head_10ms_peak'] = db(np.abs(x[:int(.01 * SR)]).max())
     r['tail_50ms_rms'] = db(np.sqrt((x[-int(.05 * SR):] ** 2).mean()))
     # 短期（3秒）LUFS を 0.5 秒刻みで。窓の中心の時刻を返す
@@ -135,6 +135,27 @@ def spectral(mono):
     cent = librosa.feature.spectral_centroid(S=np.sqrt(S), sr=SR)[0]
     flat = librosa.feature.spectral_flatness(S=np.sqrt(S))[0]
     return dict(bands=bands, centroid=float(np.median(cent)), flatness=float(np.median(flat)))
+
+
+def clicks(mono):
+    """プチ音の候補：8kHz 以上のエネルギーが前後 20ms より 20dB 以上高い、1〜2 コマ（2.7ms）だけの山。
+    子音（サ行・タ行）は 10ms 以上続くので拾わない。デジタルの完全な無音（50ms 以上の 0）も返す"""
+    import librosa
+    S = np.abs(librosa.stft(mono, n_fft=256, hop_length=128)) ** 2
+    f = librosa.fft_frequencies(sr=SR, n_fft=256)
+    e = 10 * np.log10(S[f > 8000].sum(0) + 1e-12)
+    out = []
+    for i in range(8, len(e) - 8):
+        ref = max(np.median(e[i - 8:i - 1]), np.median(e[i + 2:i + 9]))
+        if e[i] - ref >= 20 and e[i] >= e[i - 1] and e[i] >= e[i + 1] and e[i] > -40:
+            out.append((round(i * 128 / SR, 3), round(float(e[i] - ref), 1)))
+    z = np.abs(mono) < 1e-6
+    sil, i, n = [], 0, len(z)
+    edges = np.flatnonzero(np.diff(np.r_[0, z.astype(np.int8), 0]))
+    for a, b in zip(edges[::2], edges[1::2]):
+        if b - a >= 0.05 * SR and a > 0 and b < n:
+            sil.append((round(a / SR, 3), round(b / SR, 3)))
+    return dict(clicks=out, digital_silence=sil)
 
 
 def beats(mono):
@@ -271,7 +292,48 @@ def whisper(path, model, threads):
     return dict(text=text.strip(), words=words, model=model)
 
 
+_D = 'ぜろ いち に さん よん ご ろく なな はち きゅう'.split()
+
+
+def num2kana(m):
+    """数字の読み（だいたい）：26.21→にじゅうろくてんにいいち、16000→いちまんろくせん、2万5千はそのまま漢字に任せる"""
+    s = m.group(0).replace(',', '')
+    if '.' in s:
+        a, b = s.split('.', 1)
+        return num2kana(re.match(r'.*', a)) + 'てん' + ''.join({'2': 'にい', '5': 'ごお'}.get(c, _D[int(c)]) for c in b)
+    n = int(s)
+    if n == 0:
+        return 'ぜろ'
+    out = ''
+    for unit, name in ((10 ** 8, 'おく'), (10 ** 4, 'まん'), (1, '')):
+        q, n = divmod(n, unit)
+        if q == 0:
+            continue
+        part = ''
+        for u, un, sp in ((1000, 'せん', {3: 'さんぜん', 8: 'はっせん'}), (100, 'ひゃく', {3: 'さんびゃく', 6: 'ろっぴゃく', 8: 'はっぴゃく'}),
+                          (10, 'じゅう', {}), (1, '', {})):
+            d, q = divmod(q, u)
+            if d:
+                part += sp.get(d) or ((('' if d == 1 and u > 1 and not (u == 1000 and unit > 1) else _D[d]) + un) if u > 1 else _D[d])
+        out += part + name
+    return out
+
+
+_TOK = None
+
+
 def to_kana(s):
+    """文字起こしを読み（ひらがな）に。数字は先に読みへ。形態素解析は SudachiPy があれば使い、無ければ pykakasi"""
+    global _TOK
+    s = re.sub(r'\d[\d,]*(?:\.\d+)?', num2kana, s)
+    try:
+        from sudachipy import dictionary, tokenizer
+        if _TOK is None:
+            _TOK = (dictionary.Dictionary().create(), tokenizer.Tokenizer.SplitMode.C)
+        return ''.join(m.reading_form() if re.search(r'[\u4e00-\u9fff\u30a0-\u30ff]', m.surface()) else m.surface()
+                       for m in _TOK[0].tokenize(s, _TOK[1]))
+    except ImportError:
+        pass
     try:
         import pykakasi
     except ImportError:
@@ -315,7 +377,10 @@ def check_reading(tr, expect_kana, must):
             r.update(expect=a2, heard=b2, ratio=round(sm.ratio(), 3), diffs=diffs,
                      digits=bool(re.search(r'\d', heard)))
     if must and tr:
-        r['must'] = [(alts, any(x in tr['text'] for x in alts)) for alts in must]
+        hk = norm_kana(to_kana(tr['text']) or '').replace('は', 'わ')
+        r['must'] = [(alts, any(x in tr['text'] for x in alts) or
+                      any(len(norm_kana(to_kana(x) or '')) >= 3 and norm_kana(to_kana(x) or '').replace('は', 'わ') in hk for x in alts))
+                     for alts in must]
     return r
 
 
@@ -419,7 +484,7 @@ def flags(res, is_mix):
     L, F = res['loud'], res['loud']['ffmpeg']
     if F['I'] is not None:
         if is_mix and abs(F['I'] + 14) > 2:
-            out.append('統合 %.1f LUFS：Instagram / Reels の基準（-14 前後）から %.1f dB 離れている。%s'
+            out.append('統合 %.1f LUFS：Reels でよく言われる目安（-14 前後。Instagram は公式の数値を出していない）から %.1f dB 離れている。%s'
                        % (F['I'], F['I'] + 14, '小さいと他の投稿より静かに聞こえる' if F['I'] < -14 else '大きいと配信側で下げられる'))
     if F['TP'] is not None and F['TP'] > -1.0:
         out.append('トゥルーピーク %.1f dBTP：-1 dBTP を超える。AAC にしたとき歪む恐れ' % F['TP'])
@@ -428,9 +493,16 @@ def flags(res, is_mix):
     if F['LRA'] is not None and is_mix and F['LRA'] > 12:
         out.append('LRA %.1f LU：大小の差が大きい。スマホのスピーカーでは小さい所が聞こえにくい' % F['LRA'])
     if L['head_10ms_peak'] > -30:
-        out.append('頭の 10ms が %.0f dBFS：再生直後にプチッと鳴る恐れ（フェードインを数ms）' % L['head_10ms_peak'])
+        out.append('頭の 10ms が %.0f dBFS（いきなり音が鳴る）：再生直後にプチッと鳴る恐れ（フェードインを数ms）' % L['head_10ms_peak'])
     if L['tail_50ms_rms'] > -45:
         out.append('最後の 50ms が %.0f dBFS：音が鳴ったまま切れている（ブツ切れ）。尻にフェードを' % L['tail_50ms_rms'])
+    C = res.get('clicks') or {}
+    if C.get('clicks'):
+        out.append('プチ音の候補 %d か所：%s 秒（エンベロープの急な切れ・素材の継ぎ目・ゲートの開閉を疑う）'
+                   % (len(C['clicks']), '、'.join('%.2f' % a for a, _ in C['clicks'][:12])))
+    if C.get('digital_silence'):
+        out.append('途中の完全な無音（デジタル 0）：' + '、'.join('%.2f–%.2f' % ab for ab in C['digital_silence']) +
+                   ' 秒。意図した「間」でも、出入りをフェードしないとプチ音になる')
     if abs(L['dc']) > 0.005:
         out.append('DC オフセット %.4f' % L['dc'])
     if L['corr'] is not None and L['corr'] < 0.2:
@@ -440,7 +512,7 @@ def flags(res, is_mix):
         out.append('40Hz 未満が全体の %.0f%%：スマホでは聞こえず、ラウドネスだけ食う。ハイパスを' % B['sub<40'])
     if B['pres2k-5k'] > 25:
         out.append('2〜5kHz が %.0f%%：耳に刺さる帯域が多い' % B['pres2k-5k'])
-    if res.get('speech_vs_gap') is not None and is_mix:
+    if res.get('speech_vs_gap') is not None and is_mix and res.get('whisper'):   # YAMNet だけの区間は粗いので判定しない
         d = res['speech_vs_gap']
         if d < 4:
             out.append('声がある所と無い所の差が %.1f dB しかない：BGM が声にかぶっている可能性（ダッキングを深く）' % d)
@@ -457,9 +529,10 @@ def analyze(path, args, is_mix):
     dur = len(x) / SR
     mono = x.mean(axis=1).astype(np.float32)
     res = dict(path=path, dur=dur, ch=x.shape[1])
-    res['loud'] = loudness(x2, path)
+    res['loud'] = loudness(x, path)      # モノラルはモノラルのまま測る（ffmpeg ebur128 と同じ。2ch に複製すると +3dB になる）
     res['spec'] = spectral(mono)
     res['beats'] = beats(mono)
+    res['clicks'] = clicks(mono)
     y16 = resample(mono, 16000)
     if not args.no_tags:
         res['yamnet'] = tag_yamnet(y16, dur, args.win, args.threads)
@@ -476,7 +549,7 @@ def analyze(path, args, is_mix):
             prev = b
         if dur - prev > 0.3:
             gaps.append((prev + 0.1, dur))
-        sp, gp = region_lufs(x2, res['speech_spans']), region_lufs(x2, gaps)
+        sp, gp = region_lufs(x, res['speech_spans']), region_lufs(x, gaps)
         res['speech_lufs'], res['gap_lufs'] = sp, gp
         res['speech_vs_gap'] = (sp - gp) if (sp is not None and gp is not None) else None
     res['elapsed'] = time.time() - t0
@@ -501,7 +574,7 @@ def md_one(res, rel_png, expect, is_mix):
     o.append('| 頭10msのピーク / 尻50msのRMS | %.1f / %.1f dBFS |' % (L['head_10ms_peak'], L['tail_50ms_rms']))
     o.append('| 無音（-60dBFS 未満）の割合 | %.0f%% |' % (L['silence_ratio'] * 100))
     if res.get('speech_lufs') is not None:
-        o.append('| 声がある所 / 無い所の LUFS | %s / %s（差 %s dB） |' % (fmt(res['speech_lufs']), fmt(res.get('gap_lufs')),
+        o.append('| 声がある所 / 無い所の LUFS（%s） | %s / %s（差 %s dB） |' % ('Whisper の語の区間' if res.get('whisper') else 'YAMNet Speech>0.5、粗い', fmt(res['speech_lufs']), fmt(res.get('gap_lufs')),
                                                                      fmt(res.get('speech_vs_gap'))))
     B = res['spec']['bands']
     o.append('| 帯域の割合 | ' + '、'.join('%s %.1f%%' % (k, v) for k, v in B.items()) + ' |')
@@ -518,7 +591,7 @@ def md_one(res, rel_png, expect, is_mix):
         o.append('![overview](%s)\n' % rel_png)
     if is_mix and len(L['short']) > 1:
         o.append('**短期 LUFS の推移（1秒ごと、窓の中心の秒）**\n')
-        o.append(' '.join('%.0fs:%.0f' % (t, v) for t, v in zip(L['short_t'][::2], L['short'][::2])))
+        o.append(' '.join('%.1fs:%.1f' % (t, v) for t, v in zip(L['short_t'][::2], L['short'][::2])))
         o.append('')
     if bt['beats']:
         o.append('**拍（秒）**：' + ' '.join('%.2f' % v for v in bt['beats'][:80]))
@@ -550,7 +623,7 @@ def md_one(res, rel_png, expect, is_mix):
         if expect:
             ck = check_reading(tr, expect.get('kana'), expect.get('must'))
             if 'ratio' in ck:
-                o.append('- 想定の読み：`%s`\n- 聞こえた読み（漢字→かな、pykakasi）：`%s`\n- 一致率 %.2f%s' %
+                o.append('- 想定の読み：`%s`\n- 聞こえた読み（Whisper の文字→かな。SudachiPy／pykakasi の読みなので、漢字の読み違いはこちらの変換の誤りのことがある）：`%s`\n- 一致率 %.2f%s' %
                          (ck['expect'], ck['heard'], ck['ratio'], '（数字は読みに直していないので、数字の行は一致率が下がる）' if ck['digits'] else ''))
                 if ck['diffs']:
                     o.append('- 違い（想定→聞こえた）：' + '、'.join('「%s」→「%s」' % d for d in ck['diffs']))
