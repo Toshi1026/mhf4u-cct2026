@@ -137,3 +137,12 @@ Freesound以外（`--downloadable`）は、波の環境音がほとんどない�
    - iPhoneでの撮り方：ボイスメモ（設定で「ロスレス」とステレオをオン）か、カメラで動画を撮って音だけ使う。風よけ（ふわふわのウインドジャマー、なければ体で風をさえぎる）を使い、iPhoneの下側のマイクを海に向けて地面や手すりに固定する。手持ちのノイズが入らないよう、録っている間は触らない
 
 ## 取得ログ
+
+| 素材 | ライセンス | 結果 | ファイル / メタ |
+|---|---|---|---|
+| Small sea waves at rocky beach（mnalis） | CC BY 3.0（クレジット必須） | **取得できた**。ただし 10秒、モノラル、15kbps の opus で、**peak −49 dBFS／RMS −70 dBFS とほぼ無音**。持ち上げるとノイズが目立つので本番には不向き（参考用） | `exports/v3/sfx/openverse/wikimedia_commons/small_sea_waves_at_rocky_beach_f1c1a537.opus`（`.48k.wav`、`.json`） |
+| Water on Rocks（Dsw4） | CC BY 3.0 | **取得できず**：upload.wikimedia.org が 429（Retry-After 600秒）。10分以上あけて3回試したが、通ったのは上の1回だけ。このコンテナの出口IPが共有されていて、レート制限にかかっていると考えられる | `exports/v3/sfx/openverse/wikimedia_commons/water_on_rocks_b92f58c8.json`（status: manual_download_required） |
+| Freesound の CC0 波（上の表 #1〜#8） | CC0 / CC BY | **取得できず**：cdn.freesound.org が 403。ボット対策を回避するような手段（Referer を偽るなど）は使っていない | — |
+
+- `exports/v3/sfx/CREDITS.md` に、取得できた1件のクレジットを追記済み
+- まとめ：**この環境から、広告に使える品質の波の環境音は手に入らなかった**。上の §6 の 1（Freesound のCC0をユーザーが手で取得）か 2（現地で録る）で補う。今の `audio.py` は、実写パートで撮影素材の音（現地の波の音）を使っているので、それで足りるなら追加の素材は不要

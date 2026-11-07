@@ -136,7 +136,10 @@ class _Static:
         # 奥（東・画面の上）ほど霧で暗く
         far = np.clip((PY - 30 - yy) / 420, 0, 1)[..., None]
         far = far * (2 - far) * 0.96
-        f = f * (1 - far) + FOG * far
+        # 霧の色：浜の近くは青み、上へ行くほど暗い紺（灰色に濁らないように）
+        fc = np.clip((PY - 30 - yy) / 420, 0, 1)[..., None]
+        fogc = core.lerp(core.DEEP, core.SEA, 0.25) * (1 - fc) + FOG * fc
+        f = f * (1 - far) + fogc * far
         v = vig[..., None] * (1 - far)
         self.base_no_lines = f.astype(np.float32)
         # 等深線（250 m ごと）と海岸線

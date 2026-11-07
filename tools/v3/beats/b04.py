@@ -99,7 +99,7 @@ def render(beat, ctx):
             part, _ = G.cut(GC, gcs, gp)
             S = v.screen(part)
             f = G.draw_line(f, G.dashed(S, 13, 11), core.FOAM, 2.4, 0.9 * ga, under=0.55)
-            if gc_lab is None and i >= 20:
+            if gc_lab is None and i >= 26:
                 # 弧のいちばん上のあたりの、少し上にラベル（引き終わった所の見え方で決める）
                 Sf = vs[34].screen(GC)
                 ok = np.isfinite(Sf[:, 1])
@@ -108,7 +108,7 @@ def render(beat, ctx):
                 ly = float(min(Sf[j, 1] - 34, 700))
                 gc_lab = U.Patch([dict(text='直線なら約11,000km（陸を通る）', x=lx, y=ly, size=34, weight='Medium')])
             if gc_lab is not None:
-                f = gc_lab.put(f, core.ease((i - 20) / 8) * ga)
+                f = gc_lab.put(f, core.ease((i - 26) / 7) * ga)
         # --- 海の道
         p = _prog(i, r0, f_end)
         if p > 0:
@@ -141,8 +141,8 @@ def render(beat, ctx):
             far = np.clip((b03.PY - 30 - yy) / 420, 0, 1)
             far = (far * (2 - far) * 0.96 * fa)[:, None, None]
             f = f * (1 - far) + b03.FOG * far
-        if i < 10:
-            f = core.zoom_blur(f, 0.30 * (1 - core.ease((i + 1) / 10, 'out')), cx=v.cx, cy=v.cy)
+        if i < 12:
+            f = core.zoom_blur(f, 0.34 * (1 - core.ease((i + 1) / 12, 'out')), cx=v.cx, cy=v.cy)
         # --- 最後：線の先へ寄るズームのぼかし → b05
         if i >= n - 8:
             k = (i - (n - 8) + 1) / 8

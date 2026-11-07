@@ -395,8 +395,6 @@ def draw_surfer(frame, x, y, scale=2.0, ang=0.0, alpha=1.0, pose='ride', head=0.
         nx, ny = Rm @ np.array([-1, -21.0]) * scale + (R, R)
         rr = 3.4 * scale
         L.draw.ellipse(L.box(hx - rr - 1, hy - rr - 1, hx + rr + 1, hy + rr + 1), fill=(0, 0, 0, 0))
-        core.surfer.__globals__  # noqa（同じ見た目の頭を描き直す）
-        L.draw.line(L.p([(nx, ny), (nx, ny + 0.0)]), fill=L.col(core.FOAM), width=L.w(3.2 * scale))
         q = np.deg2rad(head)
         vx, vy = hx - nx, hy - ny
         hx2 = nx + vx * np.cos(q) - vy * np.sin(q)
@@ -626,7 +624,7 @@ class XSScene:
         hin = self.n - 27
         a = core.ease((fi - hin) / 8, 'out') if fi >= hin else 0.0
         if a > 0:
-            tilt = -28 * core.ease((fi - hin - 9) / 7, 'inout') if fi > hin + 9 else 0.0
+            tilt = -36 * core.ease((fi - hin - 9) / 7, 'inout') if fi > hin + 9 else 0.0
             draw_surfer(f, self.HOLD_X, float(bed_y(self.HOLD_X)) - 1, scale=2.6, ang=0, alpha=a, pose='hold', head=tilt)
         return f
 

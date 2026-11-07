@@ -250,6 +250,8 @@ def show(results):
         flags = []
         if not r.get('commercial_ok', True):
             flags.append('商用不可')
+        elif (r.get('license') or '').endswith('-sa'):
+            flags.append('SA：動画全体に継承の恐れ→広告では使わない')
         if r.get('source') == 'openverse' and not r.get('downloadable_here'):
             flags.append('この環境からDL不可→手動')
         print('\n[%d] %s' % (i, r.get('title')))
@@ -299,6 +301,9 @@ def get_item(r, query, want_wav):
                  'license_name': lic_name(r.get('license'), r.get('license_version')),
                  'retrieved_at': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
                  'note': 'Openverse はライセンスを保証しない。使う前に page（元サイト）でライセンスを確認すること。'})
+    if need:
+        meta['credit_requirements'] = ('CC BY：タイトル・作者・ライセンス名とその URL（license_url）を表記し、'
+                                       '切り出し・音量調整などの改変をしたら「改変あり」と書く。')
     if src == 'earshot':
         cmd = 'earshot sfx render %s -o %s' % (r['id'], os.path.join(outdir, slug(r['id']) + '.wav'))
         meta.update({'status': 'render_required', 'render_cmd': cmd, 'credit_required': False,
@@ -310,15 +315,24 @@ def get_item(r, query, want_wav):
         print('これは手元ライブラリの素材です：%s' % r.get('file'))
         return
     path = os.path.join(outdir, base + '.' + ext_for(r))
+    # 手で置いた原音（Freesound の元 WAV など）があればそれを使う。拡張子はプレビューと違ってよい
+    manual = [os.path.join(outdir, fn) for fn in sorted(os.listdir(outdir))
+              if fn.startswith(base + '.') and not fn.endswith(('.json', '.48k.wav'))]
     try:
-        if not r.get('downloadable_here'):
-            raise urllib.error.HTTPError(r.get('download_url'), 403, 'blocked here (checked 2026-11-07)', {}, None)
-        body, hdr = http_get(r['download_url'], timeout=120)
-        ctype = (hdr.get('Content-Type') or hdr.get('content-type') or '')
-        if ctype.startswith('text/html'):
-            raise RuntimeError('音声でなく HTML が返った（%s）' % ctype)
-        with open(path, 'wb') as f:
-            f.write(body)
+        if manual:
+            path = manual[0]
+            with open(path, 'rb') as f:
+                body = f.read()
+            meta['manually_placed'] = True
+        else:
+            if not r.get('downloadable_here'):
+                raise urllib.error.HTTPError(r.get('download_url'), 403, 'blocked here (checked 2026-11-07)', {}, None)
+            body, hdr = http_get(r['download_url'], timeout=120)
+            ctype = (hdr.get('Content-Type') or hdr.get('content-type') or '')
+            if ctype.startswith('text/html'):
+                raise RuntimeError('音声でなく HTML が返った（%s）' % ctype)
+            with open(path, 'wb') as f:
+                f.write(body)
         meta.update({'status': 'downloaded', 'file': os.path.relpath(path, ROOT), 'bytes': len(body),
                      'sha256': hashlib.sha256(body).hexdigest()})
         print('保存：%s（%.1f MB）' % (os.path.relpath(path, ROOT), len(body) / 1e6))
@@ -328,10 +342,19 @@ def get_item(r, query, want_wav):
                             '-ar', '48000', '-ac', '2', wav], check=True)
             meta['wav'] = os.path.relpath(wav, ROOT)
             print('WAV：%s' % meta['wav'])
+            st = subprocess.run(['nice', '-n', '15', 'ffmpeg', '-hide_banner', '-threads', '1', '-i', wav,
+                                 '-af', 'astats', '-f', 'null', '-'], capture_output=True, text=True).stderr
+            pk = re.findall(r'Peak level dB: (-?[\d.]+|-inf)', st)
+            rm = re.findall(r'RMS level dB: (-?[\d.]+|-inf)', st)
+            if pk and rm:
+                meta['peak_db'], meta['rms_db'] = float(pk[-1]), float(rm[-1])
+                print('レベル：peak %.1f dBFS / RMS %.1f dBFS%s' % (
+                    meta['peak_db'], meta['rms_db'],
+                    '  ← ほぼ無音。持ち上げるとノイズが目立つので使わない方がよい' if meta['peak_db'] < -30 else ''))
     except Exception as e:                              # noqa: BLE001
         meta.update({'status': 'manual_download_required', 'error': str(e),
-                     'manual': '元ページ %s を開いて%sダウンロードし、%s に置く' % (
-                         r.get('page'), '（Freesound はログインが必要）' if r.get('provider') == 'freesound' else '',
+                     'manual': '元ページ %s を開いて%sダウンロードし、%s に置いてから --get をやり直す（拡張子は .wav なども可）' % (
+                         r.get('page'), '（Freesound はログインが必要。元の WAV を推奨）' if r.get('provider') == 'freesound' else '',
                          os.path.relpath(path, ROOT))})
         print('取得できませんでした（%s）。手動で：%s' % (e, meta['manual']))
     _write_meta(os.path.join(outdir, base + '.json'), meta)
@@ -344,6 +367,8 @@ def _write_meta(path, meta):
     print('クレジット：%s%s' % (meta['credit_ja'], '' if meta.get('credit_required') else '（表記は任意）'))
     if meta.get('status') == 'downloaded':
         new = not os.path.exists(CREDITS)
+        if not new and ('`%s`' % meta.get('file')) in open(CREDITS, encoding='utf-8').read():
+            return                                      # 同じファイルの再取得では二重に書かない
         with open(CREDITS, 'a', encoding='utf-8') as f:
             if new:
                 f.write('# v3 効果音クレジット（sfx_search.py が追記）\n\n')
