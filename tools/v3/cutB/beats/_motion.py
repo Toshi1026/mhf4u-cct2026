@@ -608,8 +608,14 @@ class Odometer:
 
     def __init__(self, final, cx, y, digit_size=150, side_size=96, prefix='約', suffix='km', hl_suffix='',
                  weight='Bold', side_weight='Bold', gap=0.06, digit_color=None, side_color=None, suffix_color=None,
-                 lock_dur=8, decreasing=False, lock_scale=1.06, lock_drop=6.0, hide_zero=False, blur_k=0.8):
+                 lock_dur=8, decreasing=False, lock_scale=1.06, lock_drop=6.0, hide_zero=False, blur_k=0.8,
+                 feather_px=None, blur_cap=None):
         self.final_s = str(final)
+        # 2026-11-08 r3（美術監督 global_rules (2)）：feather_px を渡すと「やわらかい列」：列の窓の上下を feather_px でぼかし、
+        # 縦のぶれは板の外まで（切れない）なめらかな山形のカーネル、上限は数字の高さ（≈0.72em）× blur_cap（既定 0.5）。
+        # 渡さないときは前のまま（03・04 と同じ見た目）。
+        self.feather_px = feather_px
+        self.blur_cap = 0.5 if blur_cap is None else blur_cap
         self.final = float(self.final_s.replace(',', ''))
         self.cx, self.y, self.ds, self.ss = cx, y, digit_size, side_size
         self.gap = gap * digit_size
@@ -724,13 +730,27 @@ class Odometer:
         aa = np.zeros((bh, bw), np.float32)
         sh = np.zeros((bh, bw), np.float32)
 
+        soft = self.feather_px is not None
+
         def blit(P, px, py, mask_fn=None, vblur=0.0):
             pr, a, s, x0, y0 = P
             ix, iy = math.floor(px), math.floor(py)
             fx, fy = px - ix, py - iy
             if fx > 0.02 or fy > 0.02:
                 pr, a, s = _xform([pr, a, s], 0.0, 1.0, fx, fy)
-            if vblur >= 1.5:
+            if soft and vblur >= 1.0:
+                # 板の上下に余白を足してから、山形（三角）のカーネルで縦にぶらす（板の端で切れない・縞にならない）
+                pv = int(math.ceil(vblur)) + 2
+                pr = np.pad(pr, ((pv, pv), (0, 0), (0, 0)))
+                a, s = np.pad(a, ((pv, pv), (0, 0))), np.pad(s, ((pv, pv), (0, 0)))
+                y0 = y0 - pv
+                k = int(vblur) | 1
+                ker = (1.0 - np.abs(np.linspace(-1, 1, k + 2)[1:-1]))[:, None].astype(np.float32)
+                ker /= ker.sum()
+                pr = cv2.filter2D(pr, -1, ker, borderType=cv2.BORDER_CONSTANT)
+                a = cv2.filter2D(a, -1, ker, borderType=cv2.BORDER_CONSTANT)
+                s = cv2.filter2D(s, -1, ker, borderType=cv2.BORDER_CONSTANT)
+            elif vblur >= 1.5:
                 k = int(vblur) | 1
                 ker = np.ones((k, 1), np.float32) / k
                 pr = cv2.filter2D(pr, -1, ker, borderType=cv2.BORDER_CONSTANT)
@@ -757,7 +777,7 @@ class Odometer:
         x = right - self.sw - self.gap
         yc = self.y - 0.38 * self.ds                       # 数字の見た目の中心
         half = self.pitch / 2
-        fe = 0.10 * self.ds
+        fe = 0.10 * self.ds if not soft else float(self.feather_px)
 
         def colmask(yy):
             m = np.clip(np.minimum(yy - (yc - half), (yc + half) - yy) / fe, 0, 1)
@@ -779,6 +799,8 @@ class Odometer:
             fr = pc - math.floor(pc)
             lead_blank = (c > 0 or self.hide_zero) and math.floor(pc) == 0     # 上の桁がまだ 0：空白
             vb = min(0.4 * self.ds, max(0.0, spd[c] - 0.12) * self.pitch * self.blur_k)
+            if soft:
+                vb = min(vb, self.blur_cap * 0.72 * self.ds)
             xc = x - w / 2
             if not lead_blank:
                 blit(self.dg[str(d0)], xc, self.y - fr * self.pitch, colmask, vb)
