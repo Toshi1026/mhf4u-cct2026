@@ -14,6 +14,7 @@ API
     .sphere(c, r, k=0, mat=0)
     .ellipsoid(c, (rx, ry, rz), k=0, mat=0)
     .rbox(c, (hx, hy, hz), r, k=0, mat=0)     角の丸い箱
+    .cyl(a, b, r, rr=0, k=0, mat=0)            角の丸い円柱（袖口・リブ）
     .slab(poly, z, half, r, k=0, mat=0, fold=(amp, period, phase, dirx, diry), bend=0)
                                               多角形を押し出した板（布・耳）。fold：板の z を sin で波打たせる。
                                               bend：板の中心からの距離²で z を反らせる（耳の反り）
@@ -31,7 +32,7 @@ import cv2
 
 import core
 
-T_CONE, T_ELL, T_SLAB, T_RBOX = 0, 1, 2, 3
+T_CONE, T_ELL, T_SLAB, T_RBOX, T_CYL = 0, 1, 2, 3, 4
 
 
 @nb.njit(fastmath=True, cache=True)
@@ -86,6 +87,18 @@ def _prim(P, i, x, y, z, V):
         dz = abs(z - zz) - half + r
         ox, oz = max(d2, 0.0), max(dz, 0.0)
         return (math.sqrt(ox * ox + oz * oz) + min(max(d2, dz), 0.0) - r) * 0.8
+    if t == 4:                                          # 角の丸い円柱（a → b、半径 r、丸み rr）
+        ax, ay, az, bx, by, bz, r, rr = P[i, 1], P[i, 2], P[i, 3], P[i, 4], P[i, 5], P[i, 6], P[i, 7], P[i, 8]
+        bax, bay, baz = bx - ax, by - ay, bz - az
+        L = math.sqrt(bax * bax + bay * bay + baz * baz) + 1e-12
+        ux, uy, uz = bax / L, bay / L, baz / L
+        pax, pay, paz = x - (ax + bx) * 0.5, y - (ay + by) * 0.5, z - (az + bz) * 0.5
+        h = pax * ux + pay * uy + paz * uz
+        qx, qy, qz = pax - ux * h, pay - uy * h, paz - uz * h
+        dr = math.sqrt(qx * qx + qy * qy + qz * qz) - (r - rr)
+        dh = abs(h) - (L * 0.5 - rr)
+        ox, oz = max(dr, 0.0), max(dh, 0.0)
+        return math.sqrt(ox * ox + oz * oz) + min(max(dr, dh), 0.0) - rr
     # rounded box
     cx, cy, cz, hx, hy, hz, r = P[i, 1], P[i, 2], P[i, 3], P[i, 4], P[i, 5], P[i, 6], P[i, 7]
     qx, qy, qz = abs(x - cx) - hx + r, abs(y - cy) - hy + r, abs(z - cz) - hz + r
@@ -246,8 +259,12 @@ def _shade(P, V, w, h, pos, mm, hit, AiT, zs, L, MATS, env, shadow_k, ao_d, eps,
                 cg += coat * F * (sky[1] * env_t + gnd[1] * (1 - env_t)) * 1.6 * ao
                 cb += coat * F * (sky[2] * env_t + gnd[2] * (1 - env_t)) * 1.6 * ao
             # リム（輪郭の光）：視線に横向きの面、光の側ほど強い
-            side = max(nx * Lw[0] + ny * Lw[1], 0.0) / (math.sqrt(Lw[0] ** 2 + Lw[1] ** 2) + 1e-6)
-            rr = (1 - ndv) ** 3 * (0.45 + 0.55 * side) * rimk * (0.6 + 0.4 * ao)
+            if env.shape[0] > 15:                                   # リムの向き（画面の xy）を別に指定
+                side = max(nx * env[15] + ny * env[16], 0.0) / (math.sqrt(env[15] ** 2 + env[16] ** 2) + 1e-6)
+            else:
+                side = max(nx * Lw[0] + ny * Lw[1], 0.0) / (math.sqrt(Lw[0] ** 2 + Lw[1] ** 2) + 1e-6)
+            rmin = 0.08 if env.shape[0] > 15 else 0.45
+            rr = (1 - ndv) ** 3 * (rmin + (1 - rmin) * side) * rimk * (0.6 + 0.4 * ao)
             # 布のつや（sheen）：浅い角度でうすく明るい
             sh = sheen * (1 - ndv) ** 2 * 0.5
             cr += rim[0] * rr + sky[0] * sh * ar
@@ -279,6 +296,11 @@ class Scene:
         a, b = np.asarray(a, float), np.asarray(b, float)
         c = (a + b) / 2
         return self._add([T_CONE, *a, *b, ra, rb], (*c, np.linalg.norm(b - a) / 2 + max(ra, rb)), k, mat, op)
+
+    def cyl(self, a, b, r, rr=0.0, k=0.0, mat=0, op='add'):
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        c = (a + b) / 2
+        return self._add([T_CYL, *a, *b, r, rr], (*c, math.hypot(np.linalg.norm(b - a) / 2, r)), k, mat, op)
 
     def sphere(self, c, r, k=0.0, mat=0, op='add'):
         return self.ellipsoid(c, (r, r, r), k, mat, op)
@@ -362,7 +384,8 @@ def render(scene, mats, w, h, A, c, zs=1.0, ss=3, light=(-0.6, -0.5, 0.45), env=
     MATS = np.stack([mats[k] for k in range(len(mats))], 0) if isinstance(mats, (list, tuple)) else \
         np.stack([mats[k] for k in sorted(mats)], 0)
     envv = np.concatenate([np.asarray(env['sun'], np.float64), np.asarray(env['sky'], np.float64),
-                           np.asarray(env['ground'], np.float64), np.asarray(env['rim'], np.float64), L])
+                           np.asarray(env['ground'], np.float64), np.asarray(env['rim'], np.float64), L] +
+                          ([np.asarray(env['rim_dir'], np.float64)[:2]] if 'rim_dir' in env else []))
     out = np.zeros((hh, hw, 4), np.float64)
     AiT = np.linalg.inv(A).T
     _shade(P, V, hw, hh, pos, mm, hit, AiT, zs, Ll, MATS, envv, shadow_k, ao_d, eps, out)

@@ -10,7 +10,9 @@
 - 文字：1 行目は行ごとのマスク、「あそこまで飛ぶ？」は 1 文字ずつ、「？」は back_out で回りながら（10°→0）ポンと出る。
   01 の文字は上へぼけて抜ける（KText.exit）。最後の問いの文字も f40 から抜ける。
 - 03 へのズームスルー（f46–55）：DOT を中心に expo_in で 1.13→1.9、ズームのぼかし 0→0.22、NAVY へ暗く。03 が同じ点から
-  1.6→1.0 で受ける（zoom_through の 'in'）。"""
+  1.6→1.0 で受ける（zoom_through の 'in'）。
+2026-11-08 見た目：舞台は 01 と同じ _beach。仕上げ（finish_ad）は文字の前。最後の濃紺へは DARK 0.80 のまっすぐな曲線（03 の最初と明るさをそろえる）。
+"""
 import math
 
 import cv2
@@ -21,11 +23,12 @@ import core
 import timeline_b as timeline
 from core import W, H
 from cutB.beats import _art as A, _sky as S, _motion as M, b01
+from cutB.beats import _beach as BE, _render as R
 
 ZT0 = 46                 # ズームスルーの始まり（ローカル）
 ZT_END = 1.9             # 最後のフレームの倍率（DOT 中心）
 ZT_BLUR = 0.22
-DARK = 0.77              # 最後のフレームで NAVY へ寄せる割合（03 の最初のフレームとの明るさの差を 0.1 未満に）
+DARK = 0.80              # 最後のフレームで NAVY へ寄せる割合（2026-11-08：03 の新しい最初のフレーム（平均 約0.20）と明るさをそろえる）
 TXT_OUT = 45             # 問いの文字が抜けはじめるフレーム
 
 
@@ -106,7 +109,7 @@ def render(beat, ctx):
     zt0 = min(ZT0, n - 10)
     for i in range(n):
         gi = off + i
-        f = S.frame(gi)
+        f = BE.world(gi)
         # 点（ごく弱くまたたく）と、消えていくキラーン
         tw = 0.85 + 0.15 * np.cos((gi - T1['glint']) * 0.35)
         f = A.put_dot(f, S.DOT[0], S.DOT[1], 2.3, alpha=tw)
@@ -121,6 +124,9 @@ def render(beat, ctx):
                 halfs.append((70 - 40 * p + br, float(np.clip((i - (f_ho - 1) - c + 1) / 2.0, 0, 1))))
             f = A.put(f, lambda L, cx, cy: brackets(L, cx, cy, halfs, 11, L.col(core.FOAM, 0.85), L.w(2.4)),
                       S.DOT[0], S.DOT[1], 100, s=3, alpha=1.0, shadow=0.25)
+        k_ = S.push_k(gi, gi_end)
+        f = BE.screen_post(f)
+        f = R.finish_ad(f, gi, grain=0.005, vignette=0.10, ca_px=0.25)
         # 文字：01 の文字が抜けて、問いの文字
         f = old1.exit(f, i, -1, dur=6)
         f = old2.exit(f, i, -1, dur=6)
@@ -132,6 +138,6 @@ def render(beat, ctx):
             q = (j + 1) / float(n - zt0)
             k0 = S.push_k(gi, gi_end)
             f = M.zoom_through(f, q, S.DOT, 'out', s_out=(1.0, ZT_END / k0), blur=ZT_BLUR, steps=14)
-            d = DARK * (0.45 * q + 0.55 * M.ease(q, 'sine_in'))
+            d = DARK * q                       # 2026-11-08：まっすぐ（1 フレームの明るさの差 ≤0.055、03 の最初と ≤0.01）
             f = f * (1 - d) + core.NAVY * d
         yield np.clip(f, 0, 1).astype(np.float32)

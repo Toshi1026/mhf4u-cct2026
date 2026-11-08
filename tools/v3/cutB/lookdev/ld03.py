@@ -16,7 +16,7 @@ C0, C1 = _tosa.CENTER
 KX = 111.32 * math.cos(math.radians(C0)) * _tosa.PX_KM
 KY = 111.2 * _tosa.PX_KM
 CELL = 0.12                                     # 地図の px（1 画素 ≈ 26m）
-EXAG = 2.5                                      # 高さの強調
+EXAG = 1.8                                      # 高さの強調（2.5 はとげとげに見えた）
 MPX = _tosa.PX_KM / 1000.0                      # 1m → 地図の px
 LL = (33.15, 33.95, 133.15, 133.95)
 
@@ -48,48 +48,79 @@ def elev():
     return R.cached('ld03_elev|%d|%d|%.3f' % (NX, NZ, CELL), mk)
 
 
+def sea_land(E):
+    """標高の NaN を「海」と「川・湖・欠測」に分ける：細い NaN（川）を開いて切り、南の端につながる大きな NaN だけを海に。"""
+    nanm = np.isnan(E).astype(np.uint8)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    op = cv2.morphologyEx(nanm, cv2.MORPH_OPEN, k)
+    n, lab = cv2.connectedComponents(op, connectivity=4)
+    keep = np.unique(lab[-1][op[-1] > 0])
+    sea0 = np.isin(lab, keep[keep > 0]).astype(np.uint8)
+    sea = (cv2.dilate(sea0, k, iterations=2) > 0) & (nanm > 0)
+    river = (nanm > 0) & ~sea
+    return sea, river
+
+
 def textures():
     if _C:
         return _C
     with tick('terrain textures (once)'):
         E = elev()
-        land = ~np.isnan(E)
-        Ef = np.where(land, np.maximum(E, 0), 0).astype(np.float32)
+        sea, river = sea_land(E)
+        land = ~sea
+        Ef = np.where(np.isnan(E), 0.0, np.maximum(E, 0)).astype(np.float32)
+        Ef = cv2.GaussianBlur(Ef, (0, 0), 0.9)
         cm = CELL / MPX                                         # 1 画素の m
-        hs = R.hillshade(Ef, cm, az=315, el=38, exag=EXAG)
-        ao = R.terrain_ao(Ef, cm, radii=(120, 480, 1600), exag=EXAG)
+        hs = 0.62 * R.hillshade(Ef, cm, az=315, el=36, exag=EXAG) + 0.38 * R.hillshade(Ef, cm, az=250, el=55, exag=EXAG)
+        ao = R.terrain_ao(Ef, cm, radii=(90, 360, 1400), exag=EXAG)
+        hgt = (Ef * MPX * EXAG).astype(np.float32)
+        with tick('terrain cast shadow (once)'):
+            shd = R.cached('ld03_shadow|%d|%d|%.2f' % (NX, NZ, EXAG),
+                           lambda: R.terrain_shadow(hgt, CELL, az=315, el=24, maxd=500))
+        shd = cv2.GaussianBlur(shd, (0, 0), 1.0)
         mb = cv2.GaussianBlur(land.astype(np.float32), (0, 0), 1.2)
         gy, gx = np.gradient(mb)
         sdf = (mb - 0.5) / np.maximum(np.hypot(gx, gy), 1e-3)  # 海岸からの符号つき距離（画素）
-        # 陸：低地は落ち着いた青灰、斜面は光を受ける。谷は AO で沈む
-        e01 = np.clip(Ef / 1400.0, 0, 1)
-        low, high = R.hexl('2E4C68'), R.hexl('6F8FAB')
-        base = low * (1 - e01 ** 0.6)[..., None] + high * (e01 ** 0.6)[..., None]
-        light = R.hexl('B8D3E8')
-        dark = R.hexl('0C1E30')
-        sh = (hs ** 1.15)[..., None]
-        landc = (dark * (1 - sh) + base * 0.55 * (1 - sh) * 0 + base * sh * 1.25 + light * sh ** 3 * 0.35)
-        landc = landc * (0.45 + 0.55 * ao)[..., None]
-        # 海：岸からの距離で深さの色（浅い＝明るい青、沖＝濃紺）＋細い等深線ふうの線
-        sea = (~land).astype(np.uint8)
-        dist = cv2.distanceTransform(np.pad(sea, 1), cv2.DIST_L2, cv2.DIST_MASK_PRECISE)[1:-1, 1:-1] * CELL / _tosa.PX_KM
-        dk = 1 - np.exp(-dist / 5.0)
-        sh_, mid, deep = R.hexl('2C6E9E'), R.hexl('0F3A62'), R.hexl('051A30')
-        seac = sh_ * (1 - dk) [..., None] ** 2 + mid * (2 * dk * (1 - dk))[..., None] + deep * (dk ** 2)[..., None]
-        for km, a in ((1.0, 0.10), (3.0, 0.08), (6.0, 0.06), (10.0, 0.05)):
-            seac += R.hexl('9CC4E2') * (a * np.exp(-((dist - km) / 0.035) ** 2))[..., None]
-        # 細かいうねり（遠くでは平均に溶ける：テクスチャの縮小で）
-        sw = R.fbm(np.arange(NX)[None] * CELL * 2.2, np.arange(NZ)[:, None] * CELL * 0.8, 4, seed=5)
-        seac *= (1 + 0.05 * sw)[..., None]
-        k = np.clip(sdf + 0.5, 0, 1)[..., None]                # 陸と海の境（なめらかに）
-        col = seac * (1 - k) + landc * k
-        # 海岸線：細い白い線（太さは地図の上で一定＝遠近で細く。光らせない）
-        line = np.exp(-(sdf / 0.9) ** 2)
-        col = col + (R.hexl('D7E8F4') - col) * (line * 0.62)[..., None]
+        # 陸：標高で色（平野は明るい青灰・田畑のごく弱いまだら、山は深い青、尾根は光を受ける）
+        e = Ef
+        lowc, midc, highc = R.hexl('5A82A3'), R.hexl('3A5F7E'), R.hexl('5F84A3')
+        k1 = R.smoothstep(15, 160, e)[..., None]
+        k2 = R.smoothstep(300, 1300, e)[..., None]
+        base = lowc * (1 - k1) + midc * k1 * (1 - k2) + highc * k2
+        xs = np.arange(NX, dtype=np.float32)[None] * CELL
+        zs = np.arange(NZ, dtype=np.float32)[:, None] * CELL
+        fields = R.fbm(xs * 3.0, zs * 3.0, 3, seed=71)
+        base = base * (1 + 0.05 * fields * (1 - k1[..., 0]))[..., None]
+        light = (hs ** 1.1) * (0.35 + 0.65 * shd)
+        landc = base * (0.30 + 1.05 * light)[..., None] + R.hexl('CFE2F1') * (0.12 * light ** 4)[..., None]
+        landc = landc * (0.50 + 0.50 * ao)[..., None]
+        # 川・湖：細い水の色
+        rv = cv2.GaussianBlur(river.astype(np.float32), (0, 0), 0.7)[..., None]
+        landc = landc * (1 - rv * 0.7) + R.hexl('2B6A9A') * (rv * 0.7)
+        # 海：岸からの距離で深さ（浅い＝明るい青 → 大陸棚 → 深い紺）。うねりのような大きなむら
+        seau = sea.astype(np.uint8)
+        dist = cv2.distanceTransform(np.pad(seau, 1), cv2.DIST_L2, cv2.DIST_MASK_PRECISE)[1:-1, 1:-1] * CELL / _tosa.PX_KM
+        dn = dist * (1 + 0.25 * R.fbm(xs * 0.6, zs * 0.6, 3, seed=72))
+        sh_, mid, deep = R.hexl('3C88BA'), R.hexl('124878'), R.hexl('06203D')
+        d1 = 1 - np.exp(-dn / 1.2)
+        d2 = 1 - np.exp(-dn / 9.0)
+        seac = sh_ * (1 - d1)[..., None] + mid * (d1 * (1 - d2))[..., None] + deep * d2[..., None]
+        for km, a in ((1.0, 0.10), (3.0, 0.09), (6.0, 0.08), (10.0, 0.07)):
+            seac += R.hexl('9CC4E2') * (a * np.exp(-((dn - km) / 0.04) ** 2))[..., None]
+        # 海底のごく弱い起伏（水を通して見える質感。地形の主張はしない）：ノイズの高さを陰影にして、深いほど消す
+        sfl = R.fbm(xs * 0.25, zs * 0.25, 5, gain=0.55, seed=74, scale=1.0)
+        shs = R.hillshade(sfl * 0.6, 0.12, az=315, el=40)
+        seac = seac * (1 + (shs - 0.6)[..., None] * 0.22 * (1 - d2)[..., None])
+        # 波打ち際の浅い明るい帯（光らせない：細く・うすく）
+        seac += R.hexl('8DC2E4') * (0.10 * np.exp(-dist / 0.12))[..., None]
+        kk = np.clip(sdf + 0.5, 0, 1)[..., None]
+        col = seac * (1 - kk) + landc * kk
+        line = np.exp(-(sdf / 0.8) ** 2)
+        col = col + (R.hexl('D7E8F4') - col) * (line * 0.40)[..., None]
         _C['col'] = col.astype(np.float32)
         _C['col_blur'] = cv2.GaussianBlur(_C['col'], (0, 0), 1.6)
-        hgt = (Ef * MPX * EXAG).astype(np.float32)
-        _C['hgt'] = cv2.GaussianBlur(hgt, (0, 0), 0.7)
+        _C['seam'] = cv2.GaussianBlur(sea.astype(np.float32), (0, 0), 0.8)
+        _C['hgt'] = np.where(sea, np.nan, cv2.GaussianBlur(hgt, (0, 0), 0.7)).astype(np.float32)
     return _C
 
 
@@ -111,10 +142,10 @@ def camera(t):
     return R.Cam3D(eye, tgt, fov=34.0, pp=(540.0 + B.pan(t)[0] * 0.3, 760.0))
 
 
-def render_map(cam):
+def render_map(cam, t=0.0):
     T = textures()
     with tick('heightfield raymarch'):
-        hit = R.heightfield_render(cam, T['hgt'], (X0, Z0), CELL, steps=56, refine=6, scale=0.5)
+        hit = R.heightfield_render_fast(cam, T['hgt'], (X0, Z0), CELL, scale=0.5)
     with tick('shade'):
         u = ((hit['x'] - X0) / CELL - 0.5).astype(np.float32)
         v = ((hit['z'] - Z0) / CELL - 0.5).astype(np.float32)
@@ -124,12 +155,30 @@ def render_map(cam):
         kb = np.clip((fp - 0.8) / 1.5, 0, 1)[..., None]
         col = c0 * (1 - kb) + c1 * kb
         # 海面のフレネル（遠く＝浅い角度ほど空を映して明るい）
-        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-        D = cam.rays(yy, xx)
-        sea = hit['y'] < 0.02
-        cosv = np.clip(-D[..., 1], 0, 1)
+        yy, xx = np.mgrid[0:H // 2, 0:W // 2].astype(np.float32)
+        D = cv2.resize(cam.rays(yy * 2 + 1.0, xx * 2 + 1.0).astype(np.float32), (W, H), interpolation=cv2.INTER_LINEAR)
+        sea = cv2.remap(T['seam'], u, v, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        # 海面のうねり：世界の座標の fBm の傾きを法線に（遠くは平均に溶ける）。ゆっくり流れる
+        tt = t / core.FPS
+        hx2 = cv2.resize(hit['x'], (W // 2, H // 2), interpolation=cv2.INTER_AREA) / 1.6 + tt * 0.05
+        hz2 = cv2.resize(hit['z'], (W // 2, H // 2), interpolation=cv2.INTER_AREA) / 0.7 + tt * 0.08
+        e_ = 0.08                                                # 世界の座標の差分（解析的な傾き：画素の並びに依らない）
+        h0 = R.fbm(hx2, hz2, 3, seed=73)
+        gx_ = (R.fbm(hx2 + e_, hz2, 3, seed=73) - h0) / e_ * 0.06
+        gz_ = (R.fbm(hx2, hz2 + e_, 3, seed=73) - h0) / e_ * 0.06
+        fp2 = cv2.resize(hit['t'], (W // 2, H // 2), interpolation=cv2.INTER_AREA) / cam.fpx * 2 / 1.6
+        att = np.clip(1.5 - fp2 * 2.0, 0, 1)                     # 1px（半分の解像度）が波の大きさに近づくと消す
+        gx_ = cv2.resize(gx_ * att, (W, H), interpolation=cv2.INTER_LINEAR)
+        gz_ = cv2.resize(gz_ * att, (W, H), interpolation=cv2.INTER_LINEAR)
+        nx_, nz_ = -gx_, -gz_
+        nn_ = np.sqrt(nx_ ** 2 + nz_ ** 2 + 1)
+        dn = (D[..., 0] * nx_ + D[..., 1] + D[..., 2] * nz_) / nn_
+        ry = D[..., 1] - 2 * dn / nn_
+        cosv = np.clip(-dn, 0, 1)
         F = (0.02 + 0.98 * (1 - cosv) ** 5) * sea
-        col = col * (1 - F)[..., None] + R.hexl('35648F')[None, None] * F[..., None]
+        env = R.hexl('1E4D7B')[None, None] * (1 - np.clip(ry, 0, 1))[..., None] + R.hexl('6FA3CF')[None, None] * \
+            np.clip(ry, 0, 1)[..., None] ** 1.5
+        col = col * (1 - F * 1.6)[..., None] + env * (F * 1.6)[..., None]
         # 空気遠近（遠いほど霞の青へ）
         t0 = float(np.median(hit['t'][H // 2 - 50:H // 2 + 50, W // 2 - 50:W // 2 + 50]))
         col = R.aerial(col, np.clip(hit['t'] - t0 * 0.7, 0, None) / t0, R.hexl('1B456C'), 0.55)
@@ -192,7 +241,7 @@ def frame_at(i, beat):
     T = b03.timing(beat)
     cam = camera(i)
     with tick('map'):
-        f, hit, t0 = render_map(cam)
+        f, hit, t0 = render_map(cam, i)
     with tick('overlay+text'):
         u = b03.arc_u(i)
         f, pk = overlay(f, cam, i, u)

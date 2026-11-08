@@ -16,7 +16,11 @@
 - キラーン：_art.put_glint_fx。一番大きいフレームが効果音の頭（timing()['ki']）。
 - 見上げる点線は上へ流れる（0.8px/フレーム）。富士山は輪郭が quart_out で描かれ、塗りが 4 フレーム遅れ、名前は字間を詰めて入る。
 - 頂点から右への点線は ACC ではなく FOAM 0.75（1 画面に強調は 1 つ）。
-- 入り：05 と同じ速さの whip（_motion.whip 'in'、300px・ぶれ 110）。"""
+- 入り：05 と同じ速さの whip（_motion.whip 'in'、300px・ぶれ 110）。
+2026-11-08 見た目：舞台は _xsec3d（ジオラマの切り口・水の光の筋・ゆっくりのコースティクス・ガラスの富士山と雪の指）。
+富士山の輪郭の線と未来の点線は、目盛りのラベルの所を 6px ぬく（label_boxes）。悪役は villain_v2 を 1 回描いてぶらす。
+仕上げ（finish_ad、ゆがみなし）はカメラのあと、ラベル・文字はその後（ぶれ・ゆれの外）。
+"""
 import math
 
 import cv2
@@ -28,6 +32,7 @@ import timeline_b as timeline
 from core import W, H, WL
 from beats import _mapui as U
 from cutB.beats import _art as A, _xsec as X, _motion as M
+from cutB.beats import _xsec3d as X3, _figures3d as F3, _render as R
 
 ENTRY, ENTRY_DIM = 12, 0.36
 WHIP_IN = 6
@@ -178,16 +183,46 @@ def fuji_state(i, T):
     return stroke, fill
 
 
-def scene(i, T, f=None, fuji_a=None, fuji=None):
-    """06 の世界の背景（空と水・桂浜・富士山）。ラベルは put_labels（カメラのあと）。fuji=(stroke, fill) で上書き、
-    fuji_a で全体の濃さ（07 が消すとき）。"""
-    bg = X.background()
-    f = bg.copy() if f is None else f
+def label_boxes(i, T, Mc):
+    """画面の上の目盛りのラベル（1,000m・2,000m）と 2,500m の箱 → 世界の座標の箱（富士山の輪郭の線をぬく所）。"""
+    lab = X.labels()
+    out = []
+    Ai = np.linalg.inv(np.vstack([Mc, [0, 0, 1]]))
+
+    def add(p, dx, dy):
+        a = p.rgba[..., 3]
+        rows = np.nonzero(a.max(1) > 0.05)[0]
+        cols = np.nonzero(a.max(0) > 0.05)[0]
+        if not len(rows):
+            return
+        # 行のすき間で分ける（1 つの板に 2 つのラベルが入っているとき）
+        groups = np.split(rows, np.nonzero(np.diff(rows) > 4)[0] + 1)
+        for g in groups:
+            cc = np.nonzero(a[g].max(0) > 0.05)[0]
+            x0, x1 = p.x0 + dx + cc.min(), p.x0 + dx + cc.max()
+            y0, y1 = p.y0 + dy + g.min(), p.y0 + dy + g.max()
+            P = np.array([[x0, y0, 1], [x1, y1, 1]]) @ Ai.T
+            out.append((P[0, 0], P[0, 1], P[1, 0], P[1, 1]))
+    x, y = 1010.0, X.y_of(1000) - 10
+    px, py = project(Mc, x, y, margin=(0, 30, 0, 0))
+    add(lab['grid'], min(px, 1010.0) - x, py - y)
+    ax, ay = 1010.0, X.APEX[1] - 12
+    px, py = project(Mc, ax, ay)
+    add(lab['apex'], min(px, 1010.0) - ax, py - ay)
+    return out
+
+
+def scene(i, T, f=None, fuji_a=None, fuji=None, boxes=None):
+    """06 の世界の背景（ジオラマの空と水・桂浜・ガラスの富士山）。ラベルは put_labels（カメラのあと）。fuji=(stroke, fill) で上書き、
+    fuji_a で全体の濃さ（07 が消すとき）。boxes：富士山の輪郭の線をぬく文字の箱（世界の座標）。"""
+    f = X3.background(i / core.FPS) if f is None else f
     st, fl = fuji_state(i, T) if fuji is None else fuji
     if fuji_a is not None:
         fl *= fuji_a
     if st > 0.003 and (fuji_a is None or fuji_a > 0.003):
-        rgba, x0, y0 = X.fuji_layer2(st, fl)
+        f = X3.fuji(fl, f)
+        rgba, x0, y0 = X.fuji_layer2(st, 0.0)
+        rgba = X3.knockout(rgba, x0, y0, boxes or [])
         f = U.paste(f, rgba, x0, y0, 1.0 if fuji_a is None else fuji_a)
     return f
 
@@ -210,7 +245,7 @@ def villain_draw(t, T):
     tl = X.tangent_ang(min(max(ul, 0.001), 0.499))
     w_hang = M.ease(hang / 10.0, 'sine_inout')
     cape = (tl + 180) * (1 - w_hang) + 160 * w_hang + 8 * math.sin(sec * 9.0)     # 頂点：左うしろへ少し垂れる
-    return A.villain_rgba(float(x), float(y) - 14 * sc + bob, sc, ang, 'fly', sec, M2=M2, cape_ang=cape)
+    return F3.villain_v2(float(x), float(y) - 14 * sc + bob, sc, ang, 'fly', sec, M2=M2, cape_ang=cape)
 
 
 def put_villain(f, i, T):
@@ -218,14 +253,25 @@ def put_villain(f, i, T):
     if sc * 34 >= 5:
         x0, y0 = X.arc(villain_u(i - 0.5, T))
         x1, y1 = X.arc(villain_u(i + 0.5, T))
-        sp = float(np.hypot(x1 - x0, y1 - y0))
-        n = int(np.clip(math.ceil(sp * 0.4 / 3.0), 1, 8)) if sp > 12 else 1
-        r = M.subframe(lambda t: villain_draw(t, T), i, shutter=0.4, n=n)
-        return M.put_rgba(f, *r, shadow=0.35, shadow_px=max(1.0, 1.1 * sc)) if r else f
+        return put_smeared(f, villain_draw(float(i), T), x1 - x0, y1 - y0, shutter=0.4)
     # 点：ポンと決まる（1.4→1.0）
     k0 = next((k for k in range(int(T['ho']), int(T['ho']) + 14) if villain_scale(k, T) * 34 < 5), int(T['ho']) + 8)
     pr = 1.4 - 0.4 * M.ease((i - k0 + 1) / 4.0, 'back_out')
     return A.put_dot(f, X.APEX[0], X.APEX[1] - 2, 2.4 * pr)
+
+
+def put_smeared(f, r, vx, vy, shutter=0.4):
+    """1 回だけ描いた板を、1 フレームの移動 (vx, vy) × shutter の長さで速さの向きにぶらして重ねる（サブフレームの代わり）。"""
+    if r is None:
+        return f
+    rgba, x0, y0 = r
+    sp = math.hypot(vx, vy)
+    if sp * shutter > 1.5:
+        ln = sp * shutter
+        pad = int(ln / 2) + 2
+        rgba = M.smear(np.pad(rgba, ((pad, pad), (pad, pad), (0, 0))), vx / sp * ln, vy / sp * ln)
+        x0, y0 = x0 - pad, y0 - pad
+    return M.put_rgba(f, rgba, x0, y0)
 
 
 def glint_k(i, T):
@@ -238,11 +284,13 @@ def render(beat, ctx):
     T = timing(beat)
     ctr, t_sub, _ = texts()
     for i in range(n):
-        f = scene(i, T)
+        Mc = cam_M(i, T)
+        bx = label_boxes(i, T, Mc)
+        f = scene(i, T, boxes=bx)
         u = villain_u(i, T)
         # 放物線（この先はうすい点線、通った所は実線）
         rgba, x0, y0 = X.trail_layer(u, ghost=M.ease((i + 1) / 10.0, 'sine_inout'))
-        f = U.paste(f, rgba, x0, y0)
+        f = U.paste(f, X3.knockout(rgba, x0, y0, bx), x0, y0)
         # 頂点の印
         a_ap = float(np.clip((i - T['ru'] + 6) / 10.0, 0, 1))
         f = apex_lines(f, a_ap)
@@ -250,9 +298,9 @@ def render(beat, ctx):
                        phase=-0.8 * i)
         f = put_villain(f, i, T)
         f = A.put_glint_fx(f, X.APEX[0], X.APEX[1] - 2, glint_k(i, T), r=42)
-        # カメラ（世界 → 画面）、ラベルは画面で
-        Mc = cam_M(i, T)
+        # カメラ（世界 → 画面）、仕上げ、ラベルは画面で（ぶれ・ゆれの外）
         f = warp(f, Mc)
+        f = R.finish_ad(f, 475 + i, grain=0.005, vignette=0.10)
         st, _fl = fuji_state(i, T)
         f = put_labels(f, i, T, Mc, fuji_a=M.ease((i - T['ru'] - 9) / 6.0, 'sine_inout') if st > 0 else 0.0,
                        apex_a=M.ease((i - T['ru'] + 1) / 6.0, 'sine_inout'))

@@ -16,6 +16,10 @@
 最後の 6 フレーム：メーターは 1.0→0.94 に縮みながらぼけて消え（expo_in）、文字は上へ抜けて消える。暗くした地図だけが残る。
 2026-11-07 訂正：10km 版（v＝315 m/s＝時速約1,130km、音速の 0.93 倍）。
 2026-11-07 動きの仕様（P0/P1）に合わせて作り直し。
+2026-11-08 絵の作り直し（美術監督の look-dev v2）：背景は 03 の新しい立体の地図を、最初の 8 フレームで σ24px までぼかし、
+  明るさ 35% まで落とし、メーターの後ろだけ #1C3A5A へやわらかく持ち上げる（嵐の雲に見えるむらを消す）。
+  弧（破線）と海岸線は 0.25 のうすい線で残す。メーターはガラスの文字盤＋クロームの縁（_dial.Dial）。
+  組み上がり・針のばね・押し込み・消え方のタイミングは同じ。仕上げは R.finish_ad（文字の前）。出典を右下に。
 """
 import math
 
@@ -30,6 +34,7 @@ from beats import _mapui as U
 from beats import _geo as G
 from cutB.beats import _bmap as B, b03, _motion as M
 from cutB.beats._m34 import Board, blend_mask
+from cutB.beats import _maplook as ML, _render as RR, _dial
 
 MC = (540.0, 952.0)                 # メーターの中心（半円の底）
 R = 340.0
@@ -175,7 +180,7 @@ def _label_boards():
                               weight='Medium', alpha=0.8, track=0)])
             out.append((v // 50, Board.from_patch(p)))
         th = _th(JET)
-        r = R + 44
+        r = R + 74
         x, y = MC[0] + r * np.cos(th), MC[1] - r * np.sin(th)
         jet = Board.from_patch(U.Patch([dict(text='旅客機', x=x + 2, y=y - 4, size=28, weight='Medium', anchor='lm',
                                              track=0.06)]))
@@ -183,11 +188,26 @@ def _label_boards():
     return _LB
 
 
+_D = []
+
+
+def dial():
+    if not _D:
+        _D.append(_dial.Dial(MC, R, vmax=VMAX, pad=_PAD))
+    return _D[0]
+
+
 def meter_group(value, i, T, ghosts=(), snd=0.0, excess=0.0):
-    """メーター＋目盛りの数字＋「旅客機」を1枚の板に。"""
-    Bd = meter_board(value, i, T, ghosts, snd, excess)
-    LB = _label_boards()
+    """メーター（ガラスとクローム）＋目盛りの数字＋「旅客機」を1枚の板に。組み上がりの進みは前の版と同じ。"""
     b0 = T['b0']
+    ap = M.ease((i - b0) / 12.0, 'expo_out')
+    prog = [(v, M.ease((i - (b0 + 1) - 0.35 * k) / 7.0, 'back_out')) for k, v in enumerate(range(0, VMAX + 1, 50))]
+    pj = M.ease((i - (b0 + 1) - 0.35 * 18) / 7.0, 'back_out')
+    ln = 24 + 10 * M.ease((i - T['o'] + 1) / 7.0, 'back_out')
+    cs = M.ease((i - (b0 + 2)) / 8.0, 'back_out')
+    Bd = dial().frame(value, ap=ap, prog=prog, cs=cs, ghosts=ghosts, excess=excess, jet=JET, jet_len=ln,
+                      jet_a=0.55 + 0.45 * snd, jet_p=pj)
+    LB = _label_boards()
     for k, lb in LB['labels']:
         p = M.ease((i - (b0 + 1) - 0.35 * k - 2) / 7.0, 'cubic_out')
         if p > 0.01:
@@ -237,6 +257,50 @@ class _Bg:
         return blend_mask(f, L.done(), core.FOAM)
 
 
+BLUR = 24.0                         # 背景のぼかし（σ px）
+BRIGHT = 0.35                       # メーターが出ているあいだの背景の明るさ
+LIFT = '1C3A5A'
+DIMC = '0A1D33'                     # 暗くするときに寄せる紺（灰色にしない）                     # メーターの後ろのやわらかい持ち上げ
+_yy, _xx = np.mgrid[0:H, 0:W].astype(np.float32)
+_LIFT = np.exp(-(((_xx - MC[0]) / 520.0) ** 2 + ((_yy - (MC[1] - 120)) / 520.0) ** 2)).astype(np.float32)
+del _yy, _xx
+
+
+class _Bg2:
+    """LIVE フレーム目からの背景：1 回だけ描いてぼかした地図を、押し込みと流れの分だけ相似変換で動かす。"""
+
+    PRE = 0.92
+
+    def __init__(self, tc):
+        ctr, z = B.cam(tc, self.PRE)
+        f, _ = ML.map_layer(tc, ctr, z, coast_a=0.0)
+        self.base = cv2.GaussianBlur(f, (0, 0), BLUR)
+        self.zc = z
+        self.sc = B.target_scr(tc, self.PRE)
+
+    def frame(self, t, extra=1.0):
+        ctr, z = B.cam(t, extra)
+        s = z / self.zc
+        (cx, cy), (tx, ty) = self.sc, B.target_scr(t, extra)
+        Mx = np.float32([[s, 0, tx - s * cx], [0, s, ty - s * cy]])
+        return cv2.warpAffine(self.base, Mx, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+
+
+def bg_lines(f, t, extra, a_arc, a_coast):
+    """背景のうすい線：海岸線と弧（破線の流れは 03 から続く）。"""
+    ctr, z = B.cam(t, extra)
+    if a_coast > 0.003:
+        m = ML.coast_lines(ctr, z, alpha=a_coast, inland_a=a_coast * 0.5)
+        f += (np.asarray(core.FOAM, np.float32) - f) * m[..., None]
+    if a_arc > 0.003:
+        L = G.Lines()
+        B.draw_track(L, ctr, z, 1.0, alpha=a_arc, head=True, dash_phase=b03.dash_phase(t), head_r=b03.land_r(t))
+        p = B.kat_scr(ctr, z)
+        L.dot(p[0], p[1], 7.5, 255 * a_arc)
+        f = blend_mask(f, L.done(), core.FOAM)
+    return f
+
+
 def render(beat, ctx):
     n = beat['n']
     T = timing(beat)
@@ -250,27 +314,28 @@ def render(beat, ctx):
         out = 1 - M.ease((i - (n - 6) + 1) / 6.0, 'cubic_in')     # 最後の 6 フレームで消える
         push = meter_push(i, n)
         extra = push ** 0.3                                      # 背景はメーターの押し込みの 0.3 倍
-        dim = DIM * core.ease((i + 1) / 8.0) + 0.32 * core.ease((i + 1) / 10.0) * out
+        e8 = core.ease((i + 1) / 8.0)
+        e10 = core.ease((i + 1) / 10.0)
+        t = t0 + i
         if i < LIVE:
-            f = b03.map_frame(t0 + i, 1.0)
-            f = b03.overlay_static(f, t0 + i, 1.0, track_u=1.0, head=False, dot_a=1.0,
-                                   label_a=1 - core.ease((i + 1) / 8.0))   # 「桂浜」はメーターの数字と重なるので消す
+            ctr, z = B.cam(t)
+            f = b03.map_frame(t, coast_a=0.0)
+            f = ML.track_ground_shadow(f, ctr, z, 1.0, alpha=0.16 * (1 - e8))
+            sg = BLUR * e8
+            if sg > 0.3:
+                f = cv2.GaussianBlur(f, (0, 0), sg)
         else:
             if bg is None:
-                bg = _Bg(t0 + LIVE)
-            f = bg.frame(t0 + i, extra)
-        # 03 の文字・縮尺は最初の 6 フレームで上へ抜けて消える
-        if i < 6:
-            q = M.ease((i + 1) / 6.0, 'cubic_in')
-            f = B.scale_bar(f, B.cam(t0 + i)[1], alpha=0.9 * (1 - q))
-            f = U.scrim(f, b03.Y_SUB - 60, b03.Y_BIG + 10, strength=0.42 * (1 - q), feather=150)
-            f = sub3.exit(f, i, 0, dur=6)
-            f = cnt3.put(f, float(b03.KM), 1 - q, dy=-0.15 * 108 * q, blur=4 * q)
-        # 暗く（全体・まわり・メーターの面）を1回で
-        sh = 0.55 * core.ease((i + 1) / 8.0) * out
-        appear = core.ease((i + 1) / 8.0) * out
-        A = 1 - (1 - dim) * (1 - _VIG * sh) * (1 - _DISC * (0.82 * appear))   # 2026-11-07 検証：弧・海岸線が針と重なるので 0.82
-        f += (core.NAVY - f) * A[..., None]
+                bg = _Bg2(t0 + LIVE)
+            f = bg.frame(t, extra)
+        # 暗く（明るさ 35% へ、最後はメーターと一緒に少し戻す）＋メーターの後ろの持ち上げ
+        bright = 1 - (1 - BRIGHT) * e8 + 0.25 * e10 * (1 - out)
+        f = f * bright + np.asarray(core.c(DIMC), np.float32) * (1 - bright)
+        lift = (0.55 * e8 * out) * _LIFT
+        f += (np.asarray(core.c(LIFT), np.float32) - f) * lift[..., None]
+        # うすい線（03 の 0.40 / 0.92 から 8 フレームで 0.25 へ）
+        f = bg_lines(f, t, extra if i >= LIVE else 1.0, 0.92 + (0.25 - 0.92) * e8, 0.40 + (0.20 - 0.40) * e8)
+        f = ML.label_scrims(f, 1.0, cg=True, scale_bar=i < 6, credit_a=1.0)
         # メーター
         val = needle(i, T)
         ghosts = []
@@ -286,6 +351,19 @@ def render(beat, ctx):
         elif push > 1.0005:
             grp = grp.affine(push, MC)
         grp.put(f, out)
+        f = RR.finish_ad(f, 269 + i, grain=b03.GRAIN, vignette=0.10, bloom_k=0.05)
+        # 桂浜の点・ラベルは最初の 8 フレームで消える（地図の上の白い点は残さない）
+        if i < LIVE:
+            ka = 1 - e8
+            if ka > 0.003:
+                f = b03.overlay_static(f, t, ka, track_u=0.0, head=False, dot_a=0.0, label_a=1.0)
+        # 03 の文字・縮尺は最初の 6 フレームで上へ抜けて消える
+        if i < 6:
+            q = M.ease((i + 1) / 6.0, 'cubic_in')
+            f = B.scale_bar(f, B.cam(t)[1], alpha=0.9 * (1 - q))
+            f = U.scrim(f, b03.Y_SUB - 60, b03.Y_BIG + 10, strength=0.42 * (1 - q), feather=150)
+            f = sub3.exit(f, i, 0, dur=6)
+            f = cnt3.put(f, float(b03.KM), 1 - q, dy=-0.15 * 108 * q, blur=4 * q)
         # 時速のオドメーター（針の値、1,130 を超えない）
         if i >= f_ji:
             a = M.ease((i - f_ji + 2) / 4.0, 'sine_inout')
@@ -301,4 +379,5 @@ def render(beat, ctx):
                 f = note.exit(f, i, n - 6, dur=6)
             else:
                 f = note.reveal(f, i, f_o - 1, 'line_mask')
+        f = ML.credit(f)
         yield np.clip(f, 0, 1).astype(np.float32)

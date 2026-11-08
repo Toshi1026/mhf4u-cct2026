@@ -247,7 +247,10 @@ def scale_bar(f, z, alpha=1.0, km=None, x1=1000.0, y=372.0):
     Lb.poly(np.array([[x0, y], [x1, y]]), 2.0, 255 * 0.85 * alpha)
     for x in (x0, x1):
         Lb.poly(np.array([[x, y - 9], [x, y + 1]]), 2.0, 255 * 0.85 * alpha)
-    m = Lb.done()[..., None]
+    m2 = Lb.done()
+    from cutB.beats import _maplook as ML
+    f = ML.drop_shadow(f, m2, 1.5, 2.0, 2.0, 0.40 * alpha)
+    m = m2[..., None]
     f = f * (1 - m) + core.FOAM * m
     lab = _patch(('%dkm' % km, 30))
     return lab.put(f, alpha * 0.9, dx=(x0 + x1) / 2 - 540, dy=y - 16 - 1000)

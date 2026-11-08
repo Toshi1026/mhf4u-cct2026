@@ -13,7 +13,12 @@
   まんなかの列から外へ、上の段から順に。段がそろうたびに全体が 2px 沈む（重さ）。1 頭ごとに砂ぼこり 2 粒。
 - 「ゾウ 約35頭分」の 35 は「サ」の少し前から白で回り、「ゴ」で止まる（強調は 190 のまま）。ゾウは「ト」までに全部着く。
 - 全体はごくゆっくり押し込む（1.00→1.05）。入りのズームのぼかしの中心は 04 のメーターの中心 (540, 900)。
-- 出の whip：ずれ 0→300px（expo_in）、最後のぶれ 110px（06 の最初のフレームと同じ）。"""
+- 出の whip：ずれ 0→300px（expo_in）、最後のぶれ 110px（06 の最初のフレームと同じ）。
+2026-11-08 見た目：床をやめ、濃紺のスタジオ（#0B2238→光だまり #1F4A72）に正面の棚のように並べる（段ごとの接地の影だけ、映り込みなし）。
+ゾウは 3D（_figures3d.elephant_rgba）の 9 種（向き ±8°×鼻の形 3）＋大きさ ±3%、キーは左上・リムは右上。仕上げ（粒 0.006）のあとに文字。
+"""
+import math
+
 import cv2
 import numpy as np
 
@@ -23,6 +28,7 @@ import timeline_b as timeline
 from core import W, H
 from beats import _mapui as U
 from cutB.beats import _motion as M
+from cutB.beats import _render as R, _figures3d as F3
 
 COLS, ROWS = 7, 5
 DX, Y_ROW0, DY = 118.0, 790.0, 75.0
@@ -36,14 +42,50 @@ _C = {}
 
 
 def background():
+    """スタジオの濃紺（美術監督 2026-11-08）：#0B2238 → 中央のやわらかい光だまり #1F4A72。床・つなぎ目・まだらはなし。"""
     if 'bg' in _C:
         return _C['bg']
     y, x = np.mgrid[0:H, 0:W].astype(np.float32)
-    r2 = ((x - W / 2) / (W * 0.70)) ** 2 + ((y - 820) / (H * 0.42)) ** 2
-    bg = core.NAVY[None, None] + (core.DEEP - core.NAVY)[None, None] * (0.42 * np.exp(-r2 * 1.1))[..., None]
-    bg = bg * (1 - 0.15 * np.clip(r2 - 0.8, 0, 1))[..., None]
-    _C['bg'] = bg.astype(np.float32)
+    r2 = ((x - W / 2) / (W * 0.62)) ** 2 + ((y - 860) / (H * 0.36)) ** 2
+    k = np.exp(-r2 * 1.25)
+    bg = R.hexl('0B2238') * (1 - k)[..., None] + R.hexl('1F4A72') * k[..., None]
+    bg = bg * (1 - 0.25 * np.clip(r2 - 1.0, 0, 1.5) / 1.5)[..., None]
+    _C['bg'] = R.srgb(bg).astype(np.float32)
     return _C['bg']
+
+
+KEY5 = (-0.55, -0.65, 0.52)
+ENV5 = dict(sky=R.hexl('7FB4DE') * 0.34, ground=R.hexl('123E66') * 0.30, sun=np.array([1.0, 0.99, 0.98]) * 1.40,
+            rim=R.hexl('CFEFFF') * 1.25, rim_dir=(0.70, -0.70))
+YAWS = (12.0, 20.0, 28.0)
+
+
+def elephants3d():
+    """3D のゾウ 9 種（向き ±8° × 鼻の形 3 つ）。(rgba, ax, ay) のリスト。1 回だけ描く。"""
+    if 'el3' not in _C:
+        out = []
+        for yaw in YAWS:
+            for tr in (0, 1, 2):
+                rgba, ax, ay = F3.elephant_rgba(ESC * 1.06, yaw=yaw, light=KEY5, env=ENV5, trunk=tr)
+                out.append((F3.cap_white(rgba), ax, ay))
+        _C['el3'] = out
+    return _C['el3']
+
+
+def variant(r, c):
+    """段・列ごとの見た目のばらつき（いつも同じ）：(種類, 大きさ)。"""
+    h = (r * 7 + c * 13 + (r * c) % 5) % 9
+    sc = 1.0 + 0.03 * math.sin(r * 2.1 + c * 1.7)
+    return h, sc
+
+
+def put_elephant(f, el, x, y, sx, sy, a):
+    """接地の影（足もと：2–4px の濃い芯＋やわらかい広がり、#1B3550 を掛ける）→ ゾウ。床への映り込みはなし。"""
+    rgba, ax, ay = el
+    if a > 0.3:
+        f = R.contact_shadow(f, x + 3, y + 1, 44 * sx, 5.0, opacity=0.35 * a, rgb=core.c('050F1C'), blur=5.0)
+        f = R.contact_shadow(f, x + 1, y, 36 * sx, 2.2, opacity=0.55 * a, rgb=core.c('050F1C'), blur=1.6)
+    return put_sprite(f, rgba, ax, ay, x, y, sx, a, sy=sy)
 
 
 def _spline(P, k=10):
@@ -216,31 +258,17 @@ def render(beat, ctx):
 
     def val(t):
         return 190 * M.ease((t - f_ya) / float(f_n - f_ya), 'expo_out')
+    els = elephants3d()
     for i in range(n):
         f = bg.copy()
         # ゾウ（段がそろうたびに少し沈む）
         gy = grid_nudge(i, f_zo)
-        for x, y, sx, sy, a in elephants_at(i, f_zo):
-            f = put_sprite(f, el, ax, ay, x, y + gy, sx, a * 0.95, sy=sy)
+        for (x, y, sx, sy, a), (r, c) in zip(elephants_at(i, f_zo), _order(i, f_zo)):
+            vk, vs = variant(r, c)
+            f = put_elephant(f, els[vk], x, y + gy, sx * vs, sy * vs, a * 0.97)
         for b in dusts:
             if 0 <= i - b.f0 < 9:
                 f = b.draw(f, i)
-        # 文字
-        f = head.reveal(f, i, f_pa - 2, 'char_rise', stagger=1.3, dur=10)
-        v = val(i)
-        if v >= 8 or i >= f_n:
-            a = float(np.clip((v - 8) / 22.0, 0, 1)) if i < f_n else 1.0
-            f = ctr.put(f, v, a, i=i, f_lock=f_n, dv=val(i + 0.5) - val(i - 0.5))
-            f = note2.reveal(f, i, f_ya + 1, 'line_mask')
-        # 「ゾウ 約35頭分」：行は「サ（さんじゅうご）」の 3 フレーム前から出て、35 は「ゴ」で止まる（声と同じ時に数が読める）。
-        #   以前は着いたゾウの数で回していたので、「さんじゅうご」と言い終わっても 25 前後だった。
-        s0 = f_sa - 3
-        if i >= s0:
-            cnt = lambda t: 35 * M.ease(min(1.0, max(0.0, (t - s0 + 1) / float(f_go - s0 + 1))), 'quad_out')
-            ac = M.ease((i - s0 + 1) / 4.0, 'sine_inout')
-            f = sub.put(f, cnt(i), ac, i=i, f_lock=f_go, dv=cnt(i + 0.5) - cnt(i - 0.5))
-        if i >= f_zo + 6:
-            f = note1.reveal(f, i, f_zo + 6, 'line_mask')
         # 全体のゆっくりした押し込み＋ロックの小さな揺れ
         tq = i / float(n - 1)
         k = 1 + (PUSH - 1) * (0.5 * tq + 0.5 * M.ease(tq, 'sine_inout'))     # 頭から少し動いている
@@ -248,6 +276,26 @@ def render(beat, ctx):
         cx, cy = W / 2, 800.0
         Mw = np.float32([[k, 0, cx * (1 - k) + sh[0]], [0, k, cy * (1 - k) + sh[1]]])
         f = cv2.warpAffine(f, Mw, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+        f = R.finish_ad(f, 380 + i, grain=0.006, vignette=0.10)
+        # 文字（仕上げの後。同じ押し込みを掛ける：黒の上と白の上の 2 枚から色とアルファを取り出す）
+        outs = []
+        for base in (np.zeros((H, W, 3), np.float32), np.ones((H, W, 3), np.float32)):
+            g = head.reveal(base, i, f_pa - 2, 'char_rise', stagger=1.3, dur=10)
+            v = val(i)
+            if v >= 8 or i >= f_n:
+                a = float(np.clip((v - 8) / 22.0, 0, 1)) if i < f_n else 1.0
+                g = ctr.put(g, v, a, i=i, f_lock=f_n, dv=val(i + 0.5) - val(i - 0.5))
+                g = note2.reveal(g, i, f_ya + 1, 'line_mask')
+            s0 = f_sa - 3
+            if i >= s0:
+                cnt = lambda t: 35 * M.ease(min(1.0, max(0.0, (t - s0 + 1) / float(f_go - s0 + 1))), 'quad_out')
+                ac = M.ease((i - s0 + 1) / 4.0, 'sine_inout')
+                g = sub.put(g, cnt(i), ac, i=i, f_lock=f_go, dv=cnt(i + 0.5) - cnt(i - 0.5))
+            if i >= f_zo + 6:
+                g = note1.reveal(g, i, f_zo + 6, 'line_mask')
+            outs.append(cv2.warpAffine(g, Mw, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE))
+        ta = np.clip(1 - (outs[1] - outs[0]), 0, 1)
+        f = f * (1 - ta) + outs[0]
         # 入り：ズームのぼかしを 0 へ（04 のメーターの中心から）
         if i < 6:
             f = core.zoom_blur(f, 0.12 * (1 - i / 6.0) ** 2, cx=540, cy=900, steps=14)
@@ -256,3 +304,13 @@ def render(beat, ctx):
         if j >= 0:
             f = M.whip(f, (j + 1) / WHIP_OUT, axis=0, sign=-1, px=WHIP_PX, blur=WHIP_BLUR, direction='out')
         yield np.clip(f, 0, 1).astype(np.float32)
+
+
+def _order(i, f_zo):
+    """elephants_at と同じ順の (段, 列)。"""
+    out = []
+    for r in range(ROWS):
+        for c in range(COLS):
+            if i - (f_zo + el_delay(r, c)) >= 0:
+                out.append((r, c))
+    return out

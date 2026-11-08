@@ -8,14 +8,20 @@
 最後のフレームは b11 と同じ（08 は案A b12 の 0 フレーム目と同じ IMG_9662 から始められる）。
 2026-11-07 動きの仕様（P2）：筋はサブフレームのぶれをかけたカプセル（先が太く明るい）。しぶきの粒はそのときの速さの向きに
 のびた楕円（長さ ∝ 速さ×0.5 フレーム）。2 フレーム遅れて、0.6 倍の速さの小さな粒 5 つの 2 波目。冠は 3 本の角のまま。
+2026-11-08 絵の作り直し（美術監督の look-dev v2）：b11 の線画の地図の代わりに、03・04 と同じ立体の地図（_maplook、
+  b11 のカメラで射影）を見せ、カメラが起き上がるあいだ（11→18 フレーム）に b11 の絵へ溶かす。b11 の中身（_lines・
+  _background）を同じ手順で合成し直すので、18 フレーム目からは b11 と画素単位で同じ（最後のフレームは b12 の 1 フレーム目）。
+  地図を見せているあいだは、沖の等距離線（海岸に平行な線）は出さず、川は強調色ではなく #6FB8E8 で描く。
+  最初の 7 フレームは 04 の最後の暗さから明るくなる（b11 の線画の出と同じ）。しぶき・筋には海に落ちるやわらかい影。
 """
+import cv2
 import numpy as np
 
 from cutB.beats import _useA  # noqa: F401
 import core
 from beats import b11
 from beats import _mapui as U, _geo as G
-from cutB.beats import _bmap as B, _motion as M
+from cutB.beats import _bmap as B, _motion as M, _maplook as ML, _render as RR
 
 FALL = (0, 3)                 # 筋が落ちてくる
 SPL = (3, 13)                 # しぶき
@@ -108,12 +114,104 @@ def _streak(f, cx, cy, i):
     return U.paste(f, rgba, x0, y0)
 
 
+MAP_W = (11, 18)               # 立体の地図 → b11 の絵へ溶かす区間（フレーム）
+RIVER = core.c('6FB8E8')
+DIMC = core.c('0A1D33')
+
+
+def map_weight(i):
+    return 1 - core.ease((i - MAP_W[0]) / float(MAP_W[1] - MAP_W[0]))
+
+
+def _b11_frame(i, S):
+    """b11.render の i フレーム目と同じ手順（同じ結果）。地図の合成に使う部品も返す。"""
+    if 12 <= i <= 17 or 28 <= i <= 32:
+        subs = tuple(i + d for d in (-0.4, -0.2, 0.0, 0.2, 0.4))
+    elif 2 <= i <= 27 and not 18 <= i <= 25 or i == 33:
+        subs = (i - 0.33, i, i + 0.33)
+    else:
+        subs = (i,)
+    acc = None
+    for t in subs:
+        m, c, r, cam = b11._lines(t, S)
+        acc = [m, c, r] if acc is None else [a + b for a, b in zip(acc, (m, c, r))]
+    m, c, r = [a / len(subs) for a in acc]
+    if 8 <= i <= 21:
+        r = sum(b11._lines(i + d, S, river_only=True) for d in np.linspace(-0.45, 0.45, 9)) / 9
+    cam = S['cam'](i)
+    if 18 <= i <= 25:
+        v = cam.f * abs(np.radians(S['cam'](i + 0.5).beta - S['cam'](i - 0.5).beta))
+        v = min(v, 360.0)
+        m, c, r = (core.whip(x, v * 0.8) for x in (m, c, r))
+    bg = b11._background(i, cam, S)
+    lm = np.clip(np.maximum(m, c), 0, 1)[..., None]
+    f = bg * (1 - lm) + core.FOAM * lm
+    lr = r[..., None]
+    f = f * (1 - lr) + core.ACC * lr
+    return f, dict(m=m, c=c, r=r, cam=cam, bg=bg)
+
+
+def _map_frame(i, parts):
+    """立体の地図（b11 のカメラ）＋海岸線＋手前の線（水平線など）＋川（#6FB8E8）。仕上げまで。"""
+    cam = parts['cam']
+    rgb, wa, valid = ML.render_cam(cam, i)
+    f = ML.sea_and_air(rgb, wa, i, haze=0.16 * min(1.0, cam.phi / 90.0), tilt=1.2)
+    v = valid[..., None]
+    f = f * v + parts['bg'] * (1 - v)
+    z = cam.f / cam.h
+    lw = ML._levels_for(z)
+    lv = ML.level(max(lw, key=lambda a: a[1])[0])
+    Lc = G.Lines()
+    for name, a in (('sea', 0.40), ('inland', 0.20)):
+        for P in lv['coast'][name]:
+            Q = cam.proj(P)
+            ok = np.isfinite(Q).all(axis=1)
+            if not ok.any() or max(np.ptp(Q[ok, 0]), np.ptp(Q[ok, 1])) < ML.MIN_LOOP:
+                continue
+            Lc.poly(Q, 1.25, 255 * a, closed=False)
+    m = np.maximum(Lc.done(), parts['c'])
+    f += (np.asarray(core.FOAM, np.float32) - f) * m[..., None]
+    lr = parts['r'][..., None]
+    f = f * (1 - lr) + RIVER * lr
+    # 04 の最後の暗さから（b11 の線画が濃くなるのと同じ 0→7 フレーム）
+    vis = 0.42 + 0.58 * core.ease(i / 7.0)
+    f = f * vis + DIMC * (1 - vis)
+    f = ML.label_scrims(f, 1.0, cg=True, credit_a=1.0)
+    return RR.finish_ad(f, 643 + i, grain=0.007, vignette=0.10, bloom_k=0.05)
+
+
+def _paste_shadowed(f, rgba, x0, y0, sh_a=0.30):
+    """白い粒の板を、海に落ちるやわらかい影（右下）つきで貼る。"""
+    h, w = rgba.shape[:2]
+    a = rgba[..., 3]
+    pad = 8
+    sh = np.zeros((h + 2 * pad, w + 2 * pad), np.float32)
+    sh[pad:pad + h, pad:pad + w] = a
+    sh = cv2.GaussianBlur(cv2.warpAffine(sh, np.float32([[1, 0, 2], [0, 1, 3]]), (w + 2 * pad, h + 2 * pad)), (0, 0), 1.6)
+    X0, Y0 = x0 - pad, y0 - pad
+    fx0, fy0, fx1, fy1 = max(X0, 0), max(Y0, 0), min(X0 + w + 2 * pad, core.W), min(Y0 + h + 2 * pad, core.H)
+    if fx1 > fx0 and fy1 > fy0:
+        sub = f[fy0:fy1, fx0:fx1]
+        k = sh[fy0 - Y0:fy1 - Y0, fx0 - X0:fx1 - X0][..., None] * sh_a
+        sub *= 1 - k * (1 - np.asarray(core.c('1B3550'), np.float32))
+    # 粒は真っ白にせず、わずかに青い白（上が明るい）
+    yy = np.linspace(0, 1, h, dtype=np.float32)[:, None, None]
+    col = rgba[..., :3] * (1.0 - 0.10 * yy) * np.asarray(core.c('EEF6FC'), np.float32) / np.asarray(core.FOAM, np.float32)
+    return U.paste(f, np.concatenate([col, rgba[..., 3:4]], -1), x0, y0)
+
+
 def render(beat, ctx):
     n = beat['n']
     assert n == 36, n
     S = b11._setup()
     P = B.setup()['dest']
-    for i, f in enumerate(b11.render(beat, ctx)):
+    for i in range(n):
+        f, parts = _b11_frame(i, S)
+        w = map_weight(i)
+        if w > 0.001:
+            fm = _map_frame(i, parts)
+            f = fm * w + f * (1 - w)
+            f = ML.credit(f, w)
         if i < SPL[1]:
             cam = S['cam'](i)
             p = cam.proj(P[None])[0]
@@ -123,5 +221,5 @@ def render(beat, ctx):
                 f = _streak(f, p[0], p[1], i)
             if SPL[0] <= i < SPL[1]:
                 rgba, x0, y0 = _spray(p[0], p[1], i, k)
-                f = U.paste(f, rgba, x0, y0)
+                f = _paste_shadowed(f, rgba, x0, y0)
         yield np.clip(f, 0, 1).astype(np.float32)

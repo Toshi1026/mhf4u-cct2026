@@ -5,7 +5,7 @@ import math
 import sys
 
 from _common import np, cv2, core, tick, report, save_pair, W, H  # noqa: F401
-from cutB.beats import _render as R, _figures as F, _art as A, _sky as S, b01, _motion as M
+from cutB.beats import _render as R, _figures as F, _figures3d as F3, _art as A, _sky as S, b01, _motion as M
 import timeline_b as timeline
 
 HZ = S.HZ
@@ -29,12 +29,29 @@ Y_SAND0 = int(SHORE.min()) - 2
 _C = {}
 
 
+def _sand_base():
+    yy = np.arange(Y_SAND0, HH, dtype=np.float32)[:, None, None]
+    t = np.clip((yy - HZ) / (HH - HZ), 0, 1) ** 0.8
+    return (R.hexl('C3CBD1') * (1 - t) + R.hexl('A7ADB1') * t) * np.ones((1, W, 1), np.float32)
+
+
+SAND_BASE = _sand_base()
+
+
 def static_layers():
     if not _C:
         with tick('sky(static)'):
             _C['sky'] = R.sky(CAM, HZ + 2, W, SUN)
         with tick('sand(static)'):
-            _C['sand'], _C['sand_info'] = R.sand(CAM, Y_SAND0, HH, W, 0.0, SUN, SHORE, skyf)
+            _C['sand'], _C['sand_info'] = R.sand(CAM, Y_SAND0, HH, W, 0.0, SUN, SHORE, skyf, rip_k=7.0, speck=1.0, base=SAND_BASE)
+        with tick('cloud deck(static)'):
+            _C['deck'] = R.cloud_deck(CAM, W, SUN, seed=11, n=24)
+            # 上空のうすい筋雲：1 回だけ作って、帯と同じようにゆっくり流す（毎フレームの雲の計算をなくす）
+            m = 400
+            cam2 = R.HorizonCam(HZ, f=1660.0, cx=W / 2 + m, cam_h=3.2)
+            ccol, ca = R.clouds(cam2, HZ, W + 2 * m, SUN, t=40.0, coverage=0.12, scale=3400.0, seed=4, cirrus=0.28,
+                                dens=0.5)
+            _C['cirrus'] = [(np.concatenate([ccol, (ca * 0.55)[..., None]], 2).astype(np.float32), 0.25)]
     return _C
 
 
@@ -46,9 +63,7 @@ def world_bg(gi):
     with tick('sky'):
         out[:HZ + 2] = C['sky']
     with tick('clouds'):
-        ccol, ca = R.clouds(CAM, HZ, W, SUN, t=t + 40.0, coverage=0.40, scale=2400.0, wind=(26.0, 0.0), seed=4,
-                            cirrus=0.45)
-        out[:HZ] = out[:HZ] * (1 - ca[..., None]) + ccol * ca[..., None]
+        out[:HZ] = R.deck_put(out[:HZ], C['deck'] + C['cirrus'], drift_px=-t * 6.0)
     with tick('sea'):
         yy = np.arange(HZ, Y_SEA1, dtype=np.float32)[:, None] + 0.5
         Zr = CAM.ground(yy, XS[None])[1]
@@ -83,7 +98,7 @@ def world_bg(gi):
 
 # ---------------------------------------------------------------- 人形の差し替え
 def villain_rgba(x, y, scale, ang=0.0, pose='fly', t=0.0, squash=1.0, M2=None, cape_ang=None, s=4):
-    return F.villain_relief(x, y, scale, ang, pose, t, squash, M2, cape_ang, light=LIGHT, env=ENV)
+    return F3.villain_rgba(x, y, scale, ang, pose, t, squash, M2, cape_ang, light=LIGHT, env=ENV)
 
 
 _FI = {}
@@ -92,7 +107,7 @@ _FI = {}
 def fist_sprite():
     if 'f' not in _FI:
         with tick('fist(once)'):
-            rgba, ax, ay = F.fist_relief(b01.DIR, b01.FS, light=LIGHT, env=ENV)
+            rgba, ax, ay = F3.fist_rgba(b01.DIR, b01.FS, light=LIGHT, env=ENV)
             # 空中の拳：ごく弱いやわらかい影（にじみ）
             sa = np.clip(cv2.GaussianBlur(rgba[..., 3], (0, 0), 7) * 0.22, 0, 1)
             sa = np.roll(np.roll(sa, 6, 0), 4, 1)
