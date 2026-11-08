@@ -116,6 +116,15 @@ def events(bs):
     T3 = c03.timing(B['03'])
     E['c03_0'] = B['03']['f0'] / FPS
     E['c03_hit'] = ft('03', T3['hit'])
+    E['c03_launch'] = ft('03', T3['launch'])            # 地面が裂けて土のカーテンが噴き上がる（2 フレーム実時間 → スロー）
+    E['c03_slow'] = (ft('03', T3['launch'] + 2), ft('03', T3['launch'] + 9))   # 約 0.3 倍のスロー（土が空中に止まる）→ 加速
+    # ショット C（03 の引き〜05）：大きなかたまり（> 3 m）が落ちる時刻（_cfx の揺れと同じ chunks_C）
+    from cutC.beats import _cfx as CF
+    a3 = CF.anchors()
+    ch = CF.chunks_C()
+    E['rock_lands'] = sorted(float((a3[1] + t) / FPS) for t, s in zip(ch.t_land, ch.size)
+                             if s > 3.0 and t >= CF.g_c0())
+    E['rain0'] = (a3[1] + CF.g_c0() - 2) / FPS          # 引きの画の 2 フレーム前から岩が降る
     E['c03_shell'] = ft('03', T3['wu0'] - 2)
     E['c03_whipup'] = ft('03', (T3['wu0'] + T3['wb0']) / 2.0)
     E['c03_hole'] = ft('03', T3['wb0'] + 3)
@@ -209,6 +218,11 @@ SFX = {   # 役 → (ファイル, 区間, earshot の読み)。区間は earsho
     'shock': ('whoosh/magic-wind2.mp3', (0.30, 2.12), 'rank shockwave z+5.03 / find z+4.43'),
     'debris': ('debris/cliff-stone-falls1.mp3', (1.95, 3.96), 'rank debris z+4.14 / find z+3.81'),
     'debris2': ('debris/rock-break1.mp3', (2.5, 3.5), 'rank debris z+4.52 / find z+4.13'),
+    'erupt': ('debris/rock-break1.mp3', (0.011, 1.832), 'find ground impact, earth and rocks bursting z+4.91（地面が裂けて噴き上がる）'),
+    'quake': ('impact/bomb4.mp3', (0.776, 2.239), 'find deep low ground explosion z+4.36（低い地鳴りの層）'),
+    'soil': ('debris/dash-soil1.mp3', (2.697, 3.225), 'find soil spraying, a burst of earth z+3.64（土が飛び散る）'),
+    'rock': ('debris/cliff-stone-falls1.mp3', (1.972, 2.157), 'find single heavy rock thudding onto dirt z+3.39'),
+    'rock2': ('debris/cliff-stone-falls1.mp3', (0.381, 0.602), 'find single heavy rock thudding onto dirt z+3.03'),
     'whip': ('whoosh/whip-gesture1.mp3', (0.04, 0.29), 'rank soft swish z+3.24 / find z+4.17'),
     'tick': ('ticks/clock-hand1.mp3', (9.975, 10.22), 'find single tick z+4.49'),
     'clank': ('glass/metal1.mp3', (0.0, 0.59), 'rank metal clank z+3.89'),
@@ -273,15 +287,46 @@ def sfx_track(n, E):
     k = int(1.2 * SR)
     boom = boom[:k] * np.concatenate([np.ones(int(0.35 * SR)), np.linspace(1, 0, k - int(0.35 * SR)) ** 2])
     cue('c03 impact boom (short, low-passed)', 'boom', E['c03_hit'], -2, 'onset', boom.astype(np.float32))
-    cue('c03 shockwave air blast', 'shock', E['c03_shell'], -3, 'peak')
+    # 2026-11-08 クレーターの迫力：地鳴りの低い層（当たり）→ 地面が裂けて土と岩が噴き上がる（launch）→ スローの間は
+    # 低く引き伸ばした崩れの音（土が空中に止まる）→ 衝撃の殻 → 引きの画で大きな岩が 1 つずつ落ちる（_cfx.thump と同じ時刻）
+    # 地鳴りと噴き上がりは引きの画（c03_crater）の前に消す：尾が残ると岩の雨が「こもった水っぽい音」に埋もれる（earshot）
+    tail = lambda x, d: MU.fade(x[:int(d * SR)], 0.003, 0.35)
+    cue('c03 ground heave (low layer)', 'quake', E['c03_hit'], -4, 'onset',
+        tail(MU.lp(S('quake'), 420, 2), E['c03_crater'] - E['c03_hit'] - 0.15))
+    cue('c03 earth bursts up', 'erupt', E['c03_launch'], -5, 'onset',
+        tail(MU.lp(S('erupt'), 6000), E['c03_crater'] - E['c03_launch'] - 0.1))
+    cue('c03 soil spray', 'soil', E['c03_launch'] + 0.02, -12)
+    s0, s1 = E['c03_slow']
+    hang = MU.lp(pitch(S('debris2'), -7), 2400)          # 約 1.5 倍に伸びる：スローで土が宙に止まる間の重い崩れ
+    hang = MU.fade(hang[:int((s1 - s0 + 0.35) * SR)], 0.12, 0.25)
+    cue('c03 slow-mo debris hang (pitched -7)', 'debris2', s0, -8, 0.0, hang)
+    sh = S('shock')                                     # 殻の風は引きの画（c03_crater）で消す（岩の雨を風で隠さない）
+    sh = MU.fade(sh[:int((peak(sh) + E['c03_crater'] + 0.1 - E['c03_shell']) * SR)], 0.003, 0.3)
+    cue('c03 shockwave air blast', 'shock', E['c03_shell'], -3, 'peak', sh)
     deb = MU.hp(S('debris'), 250)
-    cue('c03 debris patter', 'debris', E['c03_hit'] + 0.12, -15, 0.0, deb)
+    cue('c03 debris patter', 'debris', E['c03_hit'] + 0.12, -12, 0.0, deb)
     cue('c03 whip up', 'whip', E['c03_whipup'], -5, 'peak')
     hole = MU.lp(S('boom'), 900, 2)[:int(1.0 * SR)] * np.linspace(1, 0, int(1.0 * SR)) ** 2
     cue('c03 cloud hole (distant thump)', 'boom', E['c03_hole'], -5, 'onset', hole.astype(np.float32))
-    cue('c03 cloud hole air', 'shock', E['c03_hole'] + 0.1, -10, 'peak', pitch(S('shock'), 3))
+    ha = pitch(S('shock'), 3)
+    ha = MU.fade(ha[:int((peak(ha) + E['c03_crater'] + 0.05 - E['c03_hole'] - 0.1) * SR)], 0.003, 0.25)
+    cue('c03 cloud hole air', 'shock', E['c03_hole'] + 0.1, -10, 'peak', ha)
     cue('c03 whip down', 'whip', E['c03_whipdn'], -5, 'peak', pitch(S('whip'), -3))
-    cue('c03 crater dust settle', 'debris2', E['c03_crater'] + 0.05, -13, 0.0, MU.lp(S('debris2'), 3000))
+    cue('c03 crater dust settle', 'debris2', E['c03_crater'] + 0.05, -11, 0.0, MU.lp(S('debris2'), 3000))
+    # 引きの画：岩の雨（崖の石が落ちる音そのまま・2 秒）＋ 大きな岩（> 3 m）の着地 1 つずつ（後ほど小さく、こもらせる）。
+    # earshot（単体）：「heavy rocks and dirt clods falling and thudding onto the ground」z+5.24 / 「a rockfall」z+5.34。
+    # 雨を thump の強さで揺らす版は声の下で「squishy wet squelch」と聞こえた（z+3.0）ので、揺らさない
+    rain = MU.fade(MU.hp(S('debris'), 150), 0.05, 0.4)
+    cue('c03-05 debris rain (cliff stones falling)', 'debris', E['rain0'], -11, 0.0, rain)
+    t_last = -1.0
+    for j, t in enumerate(E['rock_lands']):
+        if t - t_last < 0.09:
+            continue
+        t_last = t
+        q = (t - E['rock_lands'][0]) / max(0.1, E['rock_lands'][-1] - E['rock_lands'][0])
+        role = 'rock' if j % 2 == 0 else 'rock2'
+        x = MU.lp(pitch(S(role), -2 * (j % 3)), 5000 - 2000 * q)
+        cue('c03-05 big rock lands %d' % (j + 1), role, t, round(-7 - 6 * q, 1), 'onset', x)
     # C04・C05 数字のカチカチ（小さく）と止まる音
     for t in E['c04_ticks']:
         cue('c04 tick', 'tick', t, -21)
@@ -487,7 +532,7 @@ def main(write_cues=False):
     scr = scream_track(n, E)
     sfx, cues = sfx_track(n, E)
     keep = [(E['c01_hit'] - 0.02, E['c01_hit'] + 0.25), (E['c01_ki'] - 0.03, E['c01_ki'] + 0.5),
-            (E['c03_hit'] - 0.02, E['c03_hit'] + 0.10)]
+            (E['c03_hit'] - 0.02, E['c03_hit'] + 0.06)]   # 「コ」（launch）からは声のために削る
     sfx = carve(sfx, vo, -12.0, -2.0, pre=0.02, smooth=0.025, keep=keep)   # 先読み 20ms
     music = carve(music_track(n, E, total), vo + scr * 0.5, -12.0, -4.0)
     wind = wind_track(n, E) * duck(scr, -4.0)

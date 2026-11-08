@@ -1,5 +1,15 @@
-"""案C ショット C（03 の最後・04・05 の通し）の時間・カメラ・動く物：遠くへ広がる砂煙の壁、クレーターの上の砂煙、落ちてくる大きな土くれ。
-時間は「当たってからの通しのフレーム」gt（03 の launch＝0）。カメラは 03 の WC0 から 05 の最後まで、1 本のゆっくりした押し込み。"""
+"""案C ショット C（03 の最後・04・05 の通し）の時間・カメラ・動く物。時間は「当たってからの通しのフレーム」gt（03 の launch＝0）。
+
+一撃の迫力（2026-11-08 クライアント修正「ただ穴が開いているだけに見える」）：
+  ・砂煙のドーム：ショット C の頭ではクレーターは土色の濃い砂煙のドームに隠れていて、04 の「1,400 トン」が止まるころまでに
+    ゆっくり晴れて、深いクレーター（層の見える内壁・盛り上がった縁・岩）が現れる。晴れたあとも底と岩から細い煙。
+  ・降ってくる土・岩・芝のかたまり（_blast.Chunks：放物線・回転・サブフレームのぶれ・左上の光）。落ちた所で小さな砂ぼこり。
+  ・地面を外へ転がっていく砂煙の輪（2 段、上下にうねる）と、草をなぎ倒しながら地平へ走る衝撃波の前線（立った草の板 → 倒れた草の板、
+    前線に低い砂ぼこりの帯）。
+  ・カメラ：ショット C の頭は寄り（1.30 倍）から一気に引いて大きさを見せ（引きの速さは expo_out）、そのあと 05 の終わりまで
+    ゆっくり押し込む。かたまりが落ちるたびに小さく揺れる。
+白く光らせない。水・地割れ・建物は描かない。
+"""
 import math
 
 import cv2
@@ -9,9 +19,11 @@ import core
 from core import W, H
 import timeline_c as timeline
 from cutB.beats import _motion as M
-from cutC.beats import _shots as SH, _fx as FX
+from cutC.beats import _shots as SH, _fx as FX, _blast as BL
 
 ZOOM = (1.0, 1.13)
+PULL = 0.38                                        # ショット C の頭の寄り（引いて大きさを見せる）
+PULL_N = 34                                        # 引きにかけるフレーム
 _C = {}
 
 
@@ -31,10 +43,19 @@ def gt(beat, i):
     return beat['f0'] + i - anchors()[1]
 
 
+def g_c0():
+    """ショット C の始まりの gt。"""
+    a = anchors()
+    return a[2] - a[1]
+
+
 def zoom_at(beat, i):
     _, _, c0, c1 = anchors()
-    q = float(np.clip((beat['f0'] + i - c0) / float(c1 - c0), 0, 1))
-    return ZOOM[0] + (ZOOM[1] - ZOOM[0]) * (0.3 * q + 0.7 * M.ease(q, 'sine_inout'))
+    fa = beat['f0'] + i
+    q = float(np.clip((fa - c0) / float(c1 - c0), 0, 1))
+    z = ZOOM[0] + (ZOOM[1] - ZOOM[0]) * (0.3 * q + 0.7 * M.ease(q, 'sine_inout'))
+    p = float(np.clip((fa - c0) / float(PULL_N), 0, 1))
+    return z * (1 + PULL * (1 - M.ease(p, 'cubic_out')))
 
 
 def project(cam, Mm, P):
@@ -44,73 +65,196 @@ def project(cam, Mm, P):
     return S, z, cam.fpx * Mm[0, 0] / np.maximum(z, 1e-3)
 
 
-# ---------------------------------------------------------------- 砂煙
-def _rng_ring():
-    if 'ring' not in _C:
-        rng = np.random.default_rng(17)
-        n = 150
-        _C['ring'] = dict(th=rng.uniform(0, 2 * np.pi, n), k=rng.integers(0, 6, n), s=rng.uniform(0.7, 1.3, n),
-                          r=rng.uniform(0.8, 1.05, n), lag=rng.uniform(0, 1, n))
-        m = 46
-        _C['haze'] = dict(x=rng.normal(0, 22, m), z=rng.normal(0, 22, m), k=rng.integers(0, 6, m), s=rng.uniform(0.8, 1.3, m),
-                          rise=rng.uniform(0.25, 0.6, m), ph=rng.uniform(0, 1, m))
-    return _C['ring'], _C['haze']
+def _puff_item(items, cam, Mm, P, size_m, a, kind, tint, dark=1.0, max_px=1500.0, zmin=40.0):
+    S, z, ppm = project(cam, Mm, np.asarray(P, float).reshape(1, 3))
+    px = float(size_m * ppm[0] * 1.7)
+    if z[0] < zmin or a <= 0.004 or px > max_px:
+        return
+    x, y = float(S[0, 0]), float(S[0, 1])
+    if not (-px < x < W + px and -px < y < H + px):
+        return
+    items.append((float(z[0]), 'd', lambda L, k=kind, x=x, y=y, s=px, a=a, t=tint, d=dark: L.puff(k, x, y, s, a, t, d)))
+
+
+# ---------------------------------------------------------------- 衝撃波の前線（なぎ倒れる草が地平へ走る）
+def sweep_R(g):
+    return 60.0 + 2900.0 * (1 - math.exp(-max(g, 0) / 55.0))
 
 
 def ring_R(g):
-    """砂煙の壁の半径（m）：ショット C のころ 150m → 05 の終わり 700m（だんだん遅く）。"""
-    return 25.0 + 420.0 * (1 - math.exp(-max(g, 0) / 80.0))
+    """地面を転がる砂煙の輪の半径（m）。"""
+    return 20.0 + 470.0 * (1 - math.exp(-max(g, 0) / 90.0))
 
 
-def dust_C(f, cam, Mm, g, alpha=1.0):
-    """遠くへ広がる低い砂煙の壁＋クレーターの上に残る砂煙（ゆっくり上がって流れる）。奥から描く。"""
-    ring, haze = _rng_ring()
+def dome_R(g):
+    return 22.0 + 62.0 * (1 - math.exp(-max(g, 0) / 24.0))
+
+
+def _rng():
+    if 'rng' not in _C:
+        rng = np.random.default_rng(17)
+        n = 210
+        _C['ring'] = dict(th=rng.uniform(0, 2 * np.pi, n), k=rng.integers(0, 6, n), s=rng.uniform(0.7, 1.3, n),
+                          r=rng.uniform(0.86, 1.04, n), ph=rng.uniform(0, 2 * np.pi, n), tier=rng.integers(0, 2, n))
+        m = 120
+        _C['front'] = dict(th=rng.uniform(0, 2 * np.pi, m), k=rng.integers(0, 6, m), s=rng.uniform(0.7, 1.3, m),
+                           r=rng.uniform(0.97, 1.0, m))
+        # ドーム：上半球の向き・中心からの割合
+        d = 110
+        el = np.radians(rng.uniform(0, 80, d))
+        az = rng.uniform(0, 2 * np.pi, d)
+        _C['dome'] = dict(dir=np.stack([np.cos(az) * np.cos(el), np.sin(el) * 1.05, np.sin(az) * np.cos(el)], 1),
+                          u=rng.uniform(0.25, 1.0, d) ** 0.5, k=rng.integers(0, 6, d), s=rng.uniform(0.75, 1.3, d),
+                          rise=rng.uniform(0.1, 0.35, d))
+        # くすぶる煙の出どころ（縁のまわりの岩・底）
+        nsrc = 26
+        rr = np.concatenate([rng.uniform(52, 150, 18), rng.uniform(0, 26, 8)])
+        th = rng.uniform(0, 2 * np.pi, nsrc)
+        _C['smoke'] = dict(x=rr * np.cos(th), z=rr * np.sin(th), ph=rng.uniform(0, 1, nsrc), s=rng.uniform(0.7, 1.4, nsrc),
+                           k=rng.integers(0, 6, nsrc), floor=np.arange(nsrc) >= 18)
+        _C['rng'] = True
+    return _C
+
+
+def _ground_y(x, z):
+    Hm = SH.crater()[0]
+    return float(SH._grid_sample(Hm, np.float32([[x]]), np.float32([[z]]))[0, 0])
+
+
+def dust_items(cam, Mm, g, alpha=1.0):
+    D = _rng()
     items = []
-    Rd = ring_R(g)
-    for th, k, s, r, lag in zip(ring['th'], ring['k'], ring['s'], ring['r'], ring['lag']):
-        rr = Rd * r
-        sz = (26.0 + 0.10 * rr) * s
-        P = np.array([[rr * math.cos(th), sz * 0.25, rr * math.sin(th)]])
-        S, z, ppm = project(cam, Mm, P)
-        px = float(sz * ppm[0] * 1.7)
-        if z[0] < 60 or px > 1400 or not (-700 < S[0, 0] < W + 700 and -700 < S[0, 1] < H + 700):
-            continue
-        a = 0.62 * alpha * math.exp(-max(g - 40, 0) / 220.0) * min(1.0, (1400 - px) / 500.0)
-        items.append((float(z[0]), int(k), float(S[0, 0]), float(S[0, 1]), px, a, 0.98))
-    for x, z_, k, s, rise, ph in zip(haze['x'], haze['z'], haze['k'], haze['s'], haze['rise'], haze['ph']):
-        hh = 6.0 + rise * g * 0.45 + 10 * ph
-        sz = (30.0 + 0.16 * g) * s
-        P = np.array([[x + 0.06 * g, hh, z_]])
-        S, z, ppm = project(cam, Mm, P)
-        a = 0.50 * alpha * min(1.0, g / 8.0) * math.exp(-max(g - 40, 0) / 120.0)
-        items.append((float(z[0]), int(k), float(S[0, 0]), float(S[0, 1]), float(sz * ppm[0] * 1.6), a, 0.90))
-    for (z, k, x, y, s, a, dk) in sorted(items, key=lambda q: -q[0]):
-        f = FX.put_puff(f, k, x, y, s, a, dk)
-    return f
+    # 転がる砂煙の輪（下の段は大きく濃い、上の段はうすい。上下にうねる）
+    ring = D['ring']
+    Rr = ring_R(g)
+    ar = 0.78 * alpha * math.exp(-max(g - 35, 0) / 95.0)
+    for th, k, s, r, ph, tier in zip(ring['th'], ring['k'], ring['s'], ring['r'], ring['ph'], ring['tier']):
+        rr = Rr * r
+        sz = (24.0 + 0.085 * rr) * s * (1.0 if tier == 0 else 0.75)
+        hh = sz * (0.22 if tier == 0 else 0.62) * (1 + 0.35 * math.sin(ph + g * 0.16))
+        _puff_item(items, cam, Mm, (rr * math.cos(th), hh, rr * math.sin(th)), sz, ar * (1.0 if tier == 0 else 0.6), int(k),
+                   'soil', 0.92 if tier == 0 else 1.0)
+    # 衝撃波の前線の低い砂ぼこりの帯
+    Rs = sweep_R(g)
+    af = 0.40 * alpha * float(np.clip((2900 - Rs) / 500.0, 0, 1))
+    if af > 0.01:
+        fr = D['front']
+        for th, k, s, r in zip(fr['th'], fr['k'], fr['s'], fr['r']):
+            rr = Rs * r
+            sz = (18.0 + 0.03 * rr) * s
+            _puff_item(items, cam, Mm, (rr * math.cos(th), sz * 0.2, rr * math.sin(th)), sz, af, int(k), 'dust', 1.0, zmin=60)
+    # 砂煙のドーム（クレーターを隠す → ゆっくり晴れる）
+    dm = D['dome']
+    Rd = dome_R(g)
+    ad = 0.92 * alpha * float(np.clip(1 - (g - 42) / 52.0, 0, 1)) ** 1.4
+    if ad > 0.01:
+        for dv, u, k, s, rise in zip(dm['dir'], dm['u'], dm['k'], dm['s'], dm['rise']):
+            P = dv * Rd * u + np.array([0.0, 6.0 + rise * g, 0.0])
+            sz = (30.0 + 0.30 * g) * s * (1.25 - 0.4 * u)
+            dark = (0.50 + 0.50 * float(np.clip(P[1] / 75.0, 0, 1))) * (0.88 + 0.20 * float(dv[0]))   # 上・日なた（+x）ほど明るい
+            _puff_item(items, cam, Mm, P, sz, ad * (0.85 + 0.15 * u), int(k), 'soil', dark)
+    # 晴れたあとも残る煙：底からうすく立ちのぼる、岩からくすぶる細い煙
+    sm = D['smoke']
+    a_s = alpha * float(np.clip((g - 30) / 25.0, 0, 1))
+    if a_s > 0.01:
+        for x, z, ph, s, k, fl in zip(sm['x'], sm['z'], sm['ph'], sm['s'], sm['k'], sm['floor']):
+            if ('gy', x, z) not in _C:
+                _C[('gy', x, z)] = _ground_y(x, z)
+            y0 = _C[('gy', x, z)]
+            for j in range(4):
+                q = ((g / 26.0 + ph + j / 4.0) % 1.0)
+                hh = y0 + (2.0 if not fl else 4.0) + q * (26.0 if not fl else 46.0)
+                sz = ((5.0 if not fl else 16.0) + q * (12.0 if not fl else 30.0)) * s
+                a = (0.30 if not fl else 0.17) * a_s * math.sin(math.pi * q) ** 1.2
+                _puff_item(items, cam, Mm, (x + q * 9.0, hh, z + q * 3.0), sz, a, int(k + j), 'grey', 0.88)
+    return items
 
 
-class BigClods(FX.Clods):
-    """ショット C の大きな土くれ（m の大きさ、m/フレームの速さ）。"""
+# ---------------------------------------------------------------- 降ってくるかたまり
+def chunks_C():
+    if 'ch' not in _C:
+        rng = np.random.default_rng(1400)
+        n = 520
+        T0 = rng.uniform(0, 1, n) ** 1.6 * 8.0
+        r0 = 4.0 + 4.5 * T0 + rng.uniform(0, 6, n)
+        az = rng.uniform(0, 2 * np.pi, n)
+        el = np.radians(rng.uniform(46, 74, n))
+        sp = rng.uniform(1.4, 4.6, n)
+        P0 = np.stack([r0 * np.cos(az), np.full(n, 0.5), r0 * np.sin(az)], 1)
+        V = np.stack([np.cos(az) * np.cos(el), np.sin(el), np.sin(az) * np.cos(el)], 1) * sp[:, None]
+        size = 0.25 + 2.3 * rng.uniform(0, 1, n) ** 3.0
+        kind = rng.choice([0, 1, 2, 3], n, p=[0.42, 0.25, 0.22, 0.11])
+        size = np.where(kind == 2, size * 1.5 + 0.4, size)
+        _C['ch'] = BL.Chunks(P0, V, T0, size, kind, seed=5, g=0.11, spin=(0.04, 0.22))
+    return _C['ch']
 
-    def draw_C(self, f, cam, Mm, g, alpha=1.0):
-        return self.draw(f, cam, g + self.f0, alpha=alpha, M2=Mm)
+
+def landing_items(cam, Mm, g):
+    """かたまりが落ちた所の砂ぼこり（大きなものだけ、16 フレームで広がって消える）。"""
+    ch = chunks_C()
+    items = []
+    age = g - ch.t_land
+    sel = np.nonzero((age >= 0) & (age < 16) & (ch.size > 0.6))[0]
+    if len(sel) == 0:
+        return items
+    P, _ = ch.pos(ch.t_land)
+    for j in sel:
+        q = age[j] / 16.0
+        sz = (4.0 + 5.0 * ch.size[j]) * (0.6 + 0.9 * q)
+        a = 0.55 * (1 - q) ** 1.3
+        _puff_item(items, cam, Mm, (P[j, 0], sz * 0.25, P[j, 2]), sz, a, int(j), 'soil', 0.95)
+    return items
 
 
-def clods_C():
-    if 'cl' not in _C:
-        _C['cl'] = BigClods(n=220, f0=0, origin=(0.0, 0.0, 0.0), speed=(1.0, 4.2), el_range=(40, 75), seed=11,
-                            g=0.11, size=(0.25, 1.4))
-    return _C['cl']
+def trail_items(cam, Mm, g):
+    """大きなかたまりのうしろの砂の尾（弧を描いて飛ぶ放出物の筋に見える）。"""
+    ch = chunks_C()
+    if 'big' not in _C:
+        _C['big'] = np.nonzero(ch.size > 1.0)[0][:80]
+    items = []
+    big = _C['big']
+    for lag in (2.0, 5.0, 9.0, 14.0):
+        t = g - lag
+        P, tau = ch.pos(np.full(ch.n, t))
+        for j in big:
+            if tau[j] <= 0 or t >= ch.t_land[j] or g >= ch.t_land[j] + 10:
+                continue
+            a = 0.40 * (1 - lag / 18.0) * float(np.clip(1 - (g - 40) / 70.0, 0, 1))
+            sz = (2.5 + 1.8 * ch.size[j]) * (1 + lag * 0.12)
+            _puff_item(items, cam, Mm, P[j], sz, a, int(j + lag), 'soil', 0.9)
+    return items
+
+
+def thump(g):
+    """大きなかたまりが落ちた時の小さな揺れの強さ（0..1）。"""
+    ch = chunks_C()
+    age = g - ch.t_land
+    m = (age >= 0) & (age < 6) & (ch.size > 1.2)
+    return 1 - math.exp(-float(np.sum(ch.size[m] * np.exp(-age[m] / 1.6))) / 10.0)
 
 
 def frame_C(beat, i, extra=None):
     """ショット C の 1 フレーム（sRGB）と、そのときの (cam, Mm)。extra(f, cam, Mm, g)：砂煙の手前に描く物（05 のゾウ）。"""
     plate, dep, cam = SH.plate_C()
     g = gt(beat, i)
-    f, Mm = SH.view_C(plate, zoom_at(beat, i))
+    Rs = sweep_R(g)
+    if Rs < 2700:                                       # 前線の外は草が立ったまま
+        if 'rsm' not in _C:
+            _C['rsm'] = SH._C['C_r']
+        m = np.clip((_C['rsm'] - Rs) / 40.0 + 0.5, 0, 1)[..., None]
+        src = plate * (1 - m) + SH._C['C_stand'] * m
+        # 前線のすぐ内側：倒れたばかりの葉のつやが少し明るい帯
+        band = np.exp(-((_C['rsm'] - Rs + 60.0) / 70.0) ** 2)[..., None] * 0.07
+        src = src + (0.85 - src) * band
+    else:
+        src = plate
+    f, Mm = SH.view_C(src, zoom_at(beat, i))
     f = f.copy()
     if extra is not None:
         f = extra(f, cam, Mm, g)
-    f = clods_C().draw_C(f, cam, Mm, g)
-    f = dust_C(f, cam, Mm, g)
+    items = dust_items(cam, Mm, g)
+    items += landing_items(cam, Mm, g)
+    items += trail_items(cam, Mm, g)
+    items += chunks_C().items(g, cam, M2=Mm, near=20.0, max_px=120.0)
+    f = BL.draw_sorted(f, items, split_z=float(np.linalg.norm(cam.eye)))
     return f, cam, Mm, g

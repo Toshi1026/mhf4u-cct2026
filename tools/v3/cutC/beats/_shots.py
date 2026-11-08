@@ -170,7 +170,7 @@ def flat_A():
 # ---------------------------------------------------------------- ショット C（高い斜めの引き：クレーター）
 C_EYE, C_TGT, C_FOV = (48.0, 118.0, -292.0), (0.0, -4.0, 22.0), 40.0
 C_OVER = 1.2                                      # 押し込み用に 1.2 倍の大きさで描く
-CR = dict(N=800, cell=0.56, Rr=48.0, depth=18.0)
+CR = dict(N=800, cell=0.56, Rr=48.0, depth=21.0)
 
 
 def cam_C(over=C_OVER):
@@ -179,8 +179,43 @@ def cam_C(over=C_OVER):
 
 
 def crater():
+    """(高さ, 放出物, 碗, GX, GZ, 岩のマスク)。F.crater_height に、縁と放出物の毛布・碗の中に散らばる岩（半分うまった丸い岩）を足す。
+    05 のゾウの輪（半径 54・62m）の上には大きな岩を置かない。"""
     if 'crater' not in _C:
-        _C['crater'] = F.crater_height(CR['N'], CR['cell'], CR['Rr'], CR['depth'])
+        Hm, ej, bowl, GX, GZ = F.crater_height(CR['N'], CR['cell'], CR['Rr'], CR['depth'])
+        Hm = Hm.copy()
+        rock = np.zeros_like(Hm)
+        rng = np.random.default_rng(1400)
+        n, cell, Rr = CR['N'], CR['cell'], CR['Rr']
+        groups = ((150, 0.97, 1.8, 0.9, 3.6), (120, 1.8, 3.6, 0.6, 1.6), (45, 0.1, 0.55, 0.9, 3.0), (90, 3.6, 4.6, 0.4, 1.0))
+        for cnt, u0, u1, s0, s1 in groups:
+            for _ in range(cnt):
+                u = rng.uniform(u0, u1) ** 1.0
+                th = rng.uniform(0, 2 * np.pi)
+                rad = s0 + (s1 - s0) * rng.uniform(0, 1) ** 2.4
+                r = u * Rr
+                if 50.5 < r < 66.0 and rad > 0.8:
+                    continue
+                x, z = r * math.cos(th), r * math.sin(th)
+                ci, cj = int(round(z / cell + n / 2 - 0.5)), int(round(x / cell + n / 2 - 0.5))
+                k = int(math.ceil(rad / cell)) + 1
+                if not (k < ci < n - k and k < cj < n - k):
+                    continue
+                sub = Hm[ci - k:ci + k + 1, cj - k:cj + k + 1]
+                gx, gz = GX[ci - k:ci + k + 1, cj - k:cj + k + 1], GZ[ci - k:ci + k + 1, cj - k:cj + k + 1]
+                el = rng.uniform(0.75, 1.0)
+                ang = rng.uniform(0, np.pi)
+                dx, dz = gx - x, gz - z
+                ex = (dx * math.cos(ang) + dz * math.sin(ang)) / rad
+                ez = (-dx * math.sin(ang) + dz * math.cos(ang)) / (rad * el)
+                d = np.sqrt(ex * ex + ez * ez)
+                lump = 1 + 0.18 * np.sin(np.arctan2(ez, ex) * 3 + rng.uniform(0, 6))
+                bump = rad * 0.85 * np.sqrt(np.clip(1 - (d / lump) ** 2, 0, 1))
+                base = float(sub[k, k]) - 0.3 * rad
+                Hm[ci - k:ci + k + 1, cj - k:cj + k + 1] = np.maximum(sub, np.where(bump > 0, base + bump, -1e3))
+                rock[ci - k:ci + k + 1, cj - k:cj + k + 1] = np.maximum(rock[ci - k:ci + k + 1, cj - k:cj + k + 1],
+                                                                         np.clip((1 - d / lump) * 4, 0, 1))
+        _C['crater'] = (Hm.astype(np.float32), ej, bowl, GX, GZ, rock.astype(np.float32))
     return _C['crater']
 
 
@@ -192,12 +227,28 @@ def _grid_sample(a, X, Z):
     return cv2.remap(a, u, v, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 
+# 土の層（sRGB の 16 進）：上から 表土・粘土・砂まじり・れき・岩。どれも灰色がかった土の色（だいだい・黄にしない）
+STRATA = [(0.6, '43382D'), (-2.4, '7A6A57'), (-5.2, '948573'), (-6.8, '665F56'), (-9.8, '847C70'), (-11.2, '57524C'),
+          (-13.8, '76706A'), (-15.0, '4C4844')]
+LOAM, CLAY, ROCK, RUBBLE = hx('463A2F'), hx('7A6C5A'), hx('6E6A64'), hx('382F28')
+
+
+def _strata(Y):
+    """高さ Y（m）の層の色（線形）。境目は少しなめらかに。"""
+    col = np.broadcast_to(hx(STRATA[0][1]), Y.shape + (3,)).astype(np.float32)
+    for (y0, c) in STRATA[1:]:
+        k = R.smoothstep(y0 + 0.35, y0 - 0.35, Y)[..., None]
+        col = col * (1 - k) + hx(c) * k
+    return col
+
+
 def plate_C():
-    """(sRGB の板 1.2 倍, 深さ, cam)。クレーター・放出物の毛布・放射状になぎ倒れた草原・地平の空。"""
+    """(sRGB の板 1.2 倍, 深さ, cam)。クレーター（層の見える内壁・盛り上がった縁・岩）・放出物の毛布・放射状になぎ倒れた草原・
+    地平の空。_C['C_stand']：草が立ったままの板（衝撃波の前線が通る前）、_C['C_r']：各画素の原点からの距離（m、空は大きな値）。"""
     if 'C' in _C:
         return _C['C']
     cam = cam_C()
-    Hm, ej, bowl, GX, GZ = crater()
+    Hm, ej, bowl, GX, GZ, rock = crater()
     cell = CR['cell']
     D = rays(cam)
     hit = F.crater_hits(cam, D, Hm, cell, rb=CR['N'] * cell / 2 - 2)
@@ -213,46 +264,67 @@ def plate_C():
     nz = _grid_sample(-gz_.astype(np.float32), X, Z)
     nn = np.sqrt(nx * nx + nz * nz + 1)
     ndl = (nx * F.SUN[0] + F.SUN[1] + nz * F.SUN[2]) / nn
+    slope = 1 - 1 / nn
     sh = F.R.terrain_shadow(Hm, cell, az=40.0, el=36.0, maxd=300.0)
     shadow = _grid_sample(sh, X, Z)
     cav = cv2.GaussianBlur(Hm, (0, 0), 6.0) - Hm
+    cav2 = cv2.GaussianBlur(Hm, (0, 0), 1.6) - Hm                    # 岩の根もとの細かい陰
     ao = np.clip(1 - 0.10 * _grid_sample(np.clip(cav, 0, None).astype(np.float32), X, Z), 0.55, 1)
-    ao = ao * np.clip(1 + 0.03 * _grid_sample(Hm, X, Z), 0.6, 1.0)
+    ao = ao * np.clip(1 - 0.35 * _grid_sample(np.clip(cav2, 0, None).astype(np.float32), X, Z), 0.5, 1)
+    ao = ao * np.clip(1 + 0.03 * _grid_sample(Hm, X, Z), 0.45, 1.0)
     r = np.hypot(X, Z) + 1e-3
     vx, vz = X - cam.eye[0], Z - cam.eye[2]
     vn = np.hypot(vx, vz) + 1e-6
     grass = F.ground_tex(X, Z, fp, flat=R.smoothstep(2600.0, 2200.0, r), rad=(X / r, Z / r), view=(vx / vn, vz / vn))
-    # 土：内側は新しい土（上ほど明るい層）、外は放出物の筋
+    stand = F.ground_tex(X, Z, fp)
     e = _grid_sample(ej, X, Z)
     b = _grid_sample(bowl, X, Z)
+    rk = _grid_sample(rock, X, Z)
     n1 = R.fbm(X / 6.0, Z / 6.0, 4, seed=91) * 0.5 + 0.5
     n2 = R.fbm(X / 1.4, Z / 1.4, 3, seed=93) * 0.5 + 0.5
-    yv = np.where(g, Y, 0)
-    strata = 0.5 + 0.5 * np.sin(yv * 1.3 + n1 * 3.0)
-    soil = F.SOIL * (0.75 + 0.35 * n2)[..., None]
-    soil = soil * (1 - 0.25 * strata[..., None]) + F.SOIL_LIT * (0.25 * strata * R.smoothstep(-12, -2, yv))[..., None]
-    soil = soil * (1 - 0.35 * R.smoothstep(-4, -12, yv))[..., None]
+    n3 = R.fbm(X / 0.5, Z / 0.5, 2, seed=94) * 0.5 + 0.5
+    yv = np.where(g, Y, 0).astype(np.float32)
+    # 内壁：ゆがんだ層（斜面ほどはっきり）。底：くずれた暗い土とがれき
+    warp = (n1 - 0.5) * 2.4 + (n2 - 0.5) * 0.6
+    wall = _strata(yv + warp) * (0.86 + 0.28 * n2)[..., None]
+    floor_k = R.smoothstep(0.30, 0.12, slope) * R.smoothstep(-4.0, -8.0, yv)
+    rub = RUBBLE * (0.75 + 0.6 * n2)[..., None] * (1 - 0.4 * R.smoothstep(0.6, 0.75, n3))[..., None]
+    rub = rub * (1 - 0.35 * n1[..., None]) + CLAY * 0.7 * 0.35 * n1[..., None]
+    inner = wall * (1 - floor_k[..., None]) + rub * floor_k[..., None]
+    # 縁の外：放出物（表土と粘土のまだら、放射の筋）
+    ejc = LOAM * (1 - n1[..., None]) + CLAY * n1[..., None]
+    ejc = ejc * (0.75 + 0.45 * n2)[..., None]
+    rimk = R.smoothstep(0.6, 1.5, yv) * (1 - b)                     # 盛り上がった縁：ひっくり返った粘土の層
+    ejc = ejc * (1 - 0.5 * rimk[..., None]) + CLAY * 1.1 * 0.5 * rimk[..., None]
+    soil = np.where((b > 0.5)[..., None], inner, ejc)
     cover = np.clip(np.maximum(b, R.smoothstep(0.35, 0.80, e * (0.55 + 0.8 * n1))), 0, 1)
-    spots = R.smoothstep(0.72, 0.80, n2) * np.clip(e * 1.5, 0, 1) * (1 - b)          # 散らばった土くれ
+    spots = R.smoothstep(0.70, 0.80, n2) * np.clip(e * 1.5, 0, 1) * (1 - b)          # 散らばった土くれ
     # 放射状になぎ倒れた草：向こうへ倒れた葉は明るく（葉の裏のつや）、手前へ倒れた葉は暗い。細い放射の筋
     th = np.arctan2(Z, X)
     st = R.fbm(r / 40.0, th * 90.0, 3, seed=95) * 0.5 + 0.5
     sheen = (X / r) * (vx / vn) + (Z / r) * (vz / vn)
     rad_k = R.smoothstep(2600.0, 2200.0, r) * R.smoothstep(40.0, 70.0, r)
-    grass = grass * (1 + rad_k * (0.16 * sheen + 0.22 * (st - 0.5)))[..., None]
-    col = grass * (1 - cover[..., None]) + soil * cover[..., None]
-    col = col * (1 - 0.55 * spots[..., None]) + F.SOIL_DK * 0.6 * spots[..., None]
+    grass = grass * (1 + rad_k * (0.20 * sheen + 0.26 * (st - 0.5)))[..., None]
+    rockc = ROCK * (0.7 + 0.6 * n3)[..., None] * (0.8 + 0.4 * n2)[..., None]
+    rk = np.clip(rk * 1.4, 0, 1)[..., None]
     cs = R.smoothstep(-0.15, 0.35, R.fbm(X / 420.0 + 3.0, Z / 420.0, 3, seed=97))      # 雲の影
     lit = np.clip(ndl, 0, 1) * shadow * (1 - 0.45 * cs)
     sky_amb = R.hexl('B4C8DA') * 0.36
-    ao = ao * np.where(b > 0.5, 0.75, 1.0)
-    col = col * (F.SUN_RGB * 0.56 * lit[..., None] + sky_amb * ao[..., None])
-    col = F.aerial(col, tt, 1 / 8000.0)
+    ao = ao * np.where(b > 0.5, 0.70, 1.0)
+    light = F.SUN_RGB * 0.56 * lit[..., None] + sky_amb * ao[..., None]
     sky = F.sky_rad(np.concatenate([D[..., :1], np.maximum(D[..., 1:2], 0), D[..., 2:]], -1))
-    img = np.where(g[..., None], col, sky)
-    out = np.clip(R.srgb(img), 0, 1).astype(np.float32)
-    out = core.grade(out, con=0.14, sat=1.12)
-    _C['C'] = (out, tt, cam)
+    outs = []
+    for gr in (grass, stand):
+        col = gr * (1 - cover[..., None]) + soil * cover[..., None]
+        col = col * (1 - 0.55 * spots[..., None]) + F.SOIL_DK * 0.6 * spots[..., None]
+        col = col * (1 - rk) + rockc * rk
+        col = F.aerial(col * light, tt, 1 / 8000.0)
+        img = np.where(g[..., None], col, sky)
+        out = np.clip(R.srgb(img), 0, 1).astype(np.float32)
+        outs.append(core.grade(out, con=0.16, sat=1.10))
+    _C['C_stand'] = outs[1]
+    _C['C_r'] = np.where(g, r, 1e6).astype(np.float32)
+    _C['C'] = (outs[0], tt, cam)
     return _C['C']
 
 

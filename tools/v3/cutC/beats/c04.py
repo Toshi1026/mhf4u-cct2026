@@ -1,7 +1,9 @@
 """案C 04（約 1.6 秒）「約1,400トン。」  テロップ 約**1,400**トン（1,400＝強調）。
 
 03 の最後の引き（ショット C）の続き：えぐれたクレーターの中にまだ砂煙がたまってゆっくり上がり、砂煙の壁は遠くへ広がる。
-カメラは 03 から 05 まで 1 本のゆっくりした押し込み（_cfx.zoom_at）。
+カメラは 03 から 05 まで 1 本のゆっくりした押し込み（_cfx.zoom_at）。03 の最後から続く砂煙のドームがゆっくり晴れて、
+「ト」（1,400 で止まる）のころに深いクレーター（層の見える内壁・盛り上がった縁・岩・くすぶる煙）が現れる（_cfx）。
+落ちてくる大きなかたまりのたびに画面がごく小さく揺れる。
 数字はオドメーター（_motion.Odometer、やわらかい列）：「ヤ」の 1 フレーム前から回りはじめ（「約0トン」は見せない）、
 「ト」で 1,400 に止まる（落ち＋1.10→1.00）。止まったときに画面がごく小さく揺れる（文字は揺らさない）。
 文字の位置は 02・03 の「現実だと」と同じベースライン（y 600）。文字の後ろだけ空をごく弱く暗くして読みやすく。
@@ -74,16 +76,21 @@ def put_text(f, i, T, beat):
 
 
 def render(beat, ctx):
-    n = beat['n']
+    for i in range(beat['n']):
+        yield one(beat, i)
+
+
+def one(beat, i):
     T = timing(beat)
-    for i in range(n):
-        f, cam, Mm, g = CF.frame_C(beat, i)
-        sh = M.shake(i, T['to'], amp=4.0, tau=2.0, rot_deg=0.0, seed=8)
-        if abs(sh[0]) + abs(sh[1]) > 0.05:
-            f = cv2.warpAffine(f, np.float32([[1, 0, sh[0]], [0, 1, sh[1]]]), (W, H), flags=cv2.INTER_LINEAR,
-                               borderMode=cv2.BORDER_REFLECT)
-        f = R.finish_ad(f, 2100 + i, grain=0.006, vignette=0.10, ca_px=0.25)
-        ka = min(1.0, (i + 1) / 6.0)
-        f = f * (1 - (1 - scrim()) * ka)
-        f = put_text(f, i, T, beat)
-        yield np.clip(f, 0, 1).astype(np.float32)
+    f, cam, Mm, g = CF.frame_C(beat, i)
+    sh = M.shake(i, T['to'], amp=4.0, tau=2.0, rot_deg=0.0, seed=8)
+    e = CF.thump(g) * 5.0                               # 大きなかたまりが落ちるたびの小さな揺れ
+    sh = (sh[0] + e * M.vnoise(g * 0.7, 81), sh[1] + e * M.vnoise(g * 0.7 + 5, 82))
+    if abs(sh[0]) + abs(sh[1]) > 0.05:
+        f = cv2.warpAffine(f, np.float32([[1, 0, sh[0]], [0, 1, sh[1]]]), (W, H), flags=cv2.INTER_LINEAR,
+                           borderMode=cv2.BORDER_REFLECT)
+    f = R.finish_ad(f, 2100 + i, grain=0.006, vignette=0.10, ca_px=0.25)
+    ka = min(1.0, (i + 1) / 6.0)
+    f = f * (1 - (1 - scrim()) * ka)
+    f = put_text(f, i, T, beat)
+    return np.clip(f, 0, 1).astype(np.float32)
