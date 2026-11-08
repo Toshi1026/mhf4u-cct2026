@@ -259,5 +259,5 @@ def map_post(f, k, info, i_fin):
             cm = GL.coast_mask(info['A'], info['zl'])
             g = g + (np.asarray(core.FOAM, np.float32) - g) * cm[..., None]
         f = f * (1 - pw) + g * pw
-    f = ML.label_scrims(f, 1.0, cg=True, credit_a=1.0)
+    f = ML.label_scrims(f, 1.0, cg=False, credit_a=0.0)
     return RR.finish_ad(f, i_fin, grain=0.007, vignette=0.10, bloom_k=0.05)

@@ -18,7 +18,7 @@ from cutB.beats import _useA  # noqa: E402,F401  最上位の `beats` を案A（
 import core       # noqa: E402
 import timeline_c as timeline   # noqa: E402
 
-CG = {'03', '04', '05', '06', '07', '08', '09', '10'}
+CG = set()   # 2026-11-08 クライアントの指示で「CGシミュレーション」の小さなラベルは出さない（以前：03〜10）
 
 
 def label(key, f, k, n):

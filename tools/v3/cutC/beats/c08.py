@@ -51,6 +51,6 @@ def render(beat, ctx):
         r, x0, y0 = V.rgba(x, y, 3.4, FA.tumble_ang(k), V.pose('tumble'), k / 30.0)
         r = M.smear(r, (x - x1) * 0.5, (y - y1) * 0.5 - vy * 0.0)
         f = M.put_rgba(f, r, x0, y0)
-        f = ML.credit(f, 1.0)
+        pass  # 出典（国土地理院）は画面に出さず、キャプションに書く（2026-11-08 クライアントの指示）
         f = telop().reveal(f, i, f_u - 2, 'char_rise', stagger=2.0, exit=n - 5, exit_dur=5)
         yield np.clip(f, 0, 1).astype(np.float32)

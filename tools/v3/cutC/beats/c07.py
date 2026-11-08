@@ -85,7 +85,7 @@ def render(beat, ctx):
         if vy > 3:
             r = M.smear(r, 0.0, -vy * 0.15)
         f = M.put_rgba(f, r, x0, y0)
-        f = RR.finish_ad(ML.label_scrims(f, 1.0, cg=True), 400 + i, grain=0.006, vignette=0.10, bloom_k=0.06)
+        f = RR.finish_ad(ML.label_scrims(f, 1.0, cg=False), 400 + i, grain=0.006, vignette=0.10, bloom_k=0.06)
         # 最後の N_X フレーム：C08 の宇宙のカメラ（k08 より前＝同じ速さで下へ振っている）へ溶ける
         q = (i - (n - N_X)) / float(N_X)
         if q >= 0:

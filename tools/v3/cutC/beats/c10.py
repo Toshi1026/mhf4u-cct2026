@@ -112,7 +112,7 @@ def zoom_frame(k):
     st = FA.state(k)
     f = V.wind_lines(f, st['x'], st['y'], k, FA.DIRV, amount=wind_amount(k) * 0.9, n=18, spread=240.0, speed=80.0)
     f, st = put_villain(f, k)
-    f = ML.credit(f, 1.0)
+    pass  # 出典（国土地理院）は画面に出さず、キャプションに書く（2026-11-08 クライアントの指示）
     return np.clip(f, 0, 1).astype(np.float32)
 
 
@@ -136,7 +136,7 @@ def _map_frame_c(i, cam, bg):
             Lc.poly(Q, 1.25, 255 * a, closed=False)
     m = Lc.done()
     f += (np.asarray(core.FOAM, np.float32) - f) * m[..., None]
-    f = ML.label_scrims(f, 1.0, cg=True, credit_a=1.0)
+    f = ML.label_scrims(f, 1.0, cg=False, credit_a=0.0)
     return RR.finish_ad(f, 643 + i, grain=0.007, vignette=0.10, bloom_k=0.05), wa * valid
 
 
@@ -171,7 +171,7 @@ def t_frames():
         elif bT.RELIEF[0] < i < bT.HAND and l9 is not None:
             tgt = l9 + (bT._l18(S) - l9) * (i - bT.RELIEF[0]) / float(bT.HAND - bT.RELIEF[0])
             f = f * np.float32(tgt / max(bT._lum(f), 1e-4))
-        f = ML.credit(f, 1 - k)
+        pass  # 出典（国土地理院）は画面に出さず、キャプションに書く（2026-11-08 クライアントの指示）
         if i < bT.SPL[1]:
             p, sea, along = bT._splash_point(cam)
             z = cam.f / cam.h

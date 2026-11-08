@@ -347,7 +347,7 @@ def render(beat, ctx):
         f = CO.frame(a, vy)
         f = core.whip(f, vy * 0.35, axis=0)
         f = villain(f, i, n, k08)
-        f = RR.finish_ad(ML.label_scrims(f, 1.0, cg=True), 300 + i, grain=0.006, vignette=0.10, bloom_k=0.06)
+        f = RR.finish_ad(ML.label_scrims(f, 1.0, cg=False), 300 + i, grain=0.006, vignette=0.10, bloom_k=0.06)
         # 入りの振り（中身が下へ）
         if i < 8:
             f = M.whip(f, (i + 1) / 8.0, axis=0, sign=+1, px=160.0, blur=90.0, direction='in')

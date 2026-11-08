@@ -27,5 +27,5 @@ def render(beat, ctx):
         r, x0, y0 = V.rgba(st['x'], st['y'], st['scale'], st['ang'], st['pc'], st['t'])
         r = M.smear(r, (st['x'] - st1['x']) * 0.5, (st['y'] - st1['y']) * 0.5)
         f = M.put_rgba(f, r, x0, y0)
-        f = ML.credit(f, 1.0)
+        pass  # 出典（国土地理院）は画面に出さず、キャプションに書く（2026-11-08 クライアントの指示）
         yield np.clip(f, 0, 1).astype(np.float32)
