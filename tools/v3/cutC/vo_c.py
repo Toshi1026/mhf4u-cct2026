@@ -35,9 +35,9 @@ PAD0, PAD1, THR = 0.03, 0.06, -50.0       # 切りそろえ：-50 dBFS（阿井�
 
 # 字幕・台本の文（lines.json）
 LINES = {
-    '01': 'アニメなら、キラーン。',
-    '03': '現実だと、こうなる。',
-    '04': '約1,400トン。',
+    '01': 'アニメなら、悪役は、パンチ一発で、空のかなたへ。',   # 2026-11-08 修正5：キラーンは効果音だけ（ナレーションから外す）
+    '03': 'でも、現実だと……こうなる。',
+    '04': 'パンチの威力は、約1,400トン！',
     '05': 'ゾウ250頭分。',
     '06': 'マッハ6.7。',
     '07': '高さ、132キロ。',
@@ -52,10 +52,9 @@ LINES = {
 
 # 合成に使う表記（第1候補、必要なら別表記も）。parts は部分ごとに合成してつなぐ（vo_aivis.synth_one の per_line 形式）
 VARIANTS = {
-    '01': [dict(parts=[dict(text='アニメなら、'), dict(text='キラーンと。', cut_last=True)], gaps=[0.12]),
-           dict(parts=[dict(text='アニメなら、'), dict(text='キラーンっと。', cut_last=True)], gaps=[0.12])],
-    '03': [dict(text='げんじつだと、こうなる。')],
-    '04': [dict(text='やく、せんよんひゃくトン。')],
+    '01': [dict(text='アニメなら、悪役は、パンチ一発で、空のかなたへ。')],   # 修正5（旧：アニメなら、キラーンと。）
+    '03': [dict(text='でも、げんじつだと……こうなる。')],
+    '04': [dict(text='パンチのいりょくは、やく、せんよんひゃく、トン！')],
     '05': [dict(text='ゾウ、にひゃくごじゅっとうぶん。'), dict(text='ゾウ、にひゃくごじゅっ頭ぶん。'),
            dict(text='象、にひゃくごじゅっとうぶん。'), dict(text='ゾウ。にひゃくごじゅっとうぶん。')],
     '06': [dict(text='マッハ、ろくてんなな。'), dict(text='マッハ。ろくてんなな。'), dict(text='まっは、ろくてんなな。'),
@@ -77,9 +76,10 @@ VARIANTS = {
 
 # Whisper の文字起こしに必ず入っていてほしい語（どれか1つ）。かな3文字以上は読みでも照合される（listen.check_reading）
 EXPECT = {
-    '01': [['アニメ', 'あにめ'], ['キラーン', 'きらーん', 'キラン', 'キラーン']],
-    '03': [['現実', 'げんじつ', 'ゲンジツ']],
-    '04': [['1400', '1,400', '千四百', 'せんよんひゃく'], ['トン', 't', 'とん']],
+    '01': [['アニメ', 'あにめ'], ['悪役', 'あくやく'], ['パンチ', 'ぱんち'], ['一発', 'いっぱつ', '1発'],
+           ['かなた', '彼方', 'カナタ']],
+    '03': [['でも', 'デモ'], ['現実', 'げんじつ', 'ゲンジツ'], ['こうなる', 'こーなる', 'コウナル']],
+    '04': [['パンチ', 'ぱんち'], ['威力', 'いりょく'], ['1400', '1,400', '千四百', 'せんよんひゃく'], ['トン', 't', 'とん']],
     '05': [['ゾウ', '象', 'ぞう', '像', '増'], ['250', '二百五十', 'にひゃくごじゅう']],
     '06': [['マッハ', 'まっは'], ['6.7', '6点7', '六点七', 'ろくてんなな', '6てん7']],
     '07': [['高さ', 'たかさ'], ['132', '百三十二', 'ひゃくさんじゅうに']],
@@ -91,6 +91,9 @@ EXPECT = {
     '14': [['屋上', 'おくじょう'], ['太平洋', 'たいへいよう']],
     '15': [['悪役', 'あくやく'], ['悪くない', 'わるくない']],
 }
+
+# 聞こえてはいけない語（Whisper の文字起こしにあれば読み NG）。04 は「1,400」が「3,400」に聞こえないこと
+NEG = {'04': ['3400', '3,400', '三千', 'さんぜん', '4400', '4,400']}
 
 for _k, _v in VARIANTS.items():          # vo_aivis.synth_one は既定の表記を TEXT[k] から引くので、C の行も入れておく
     va.TEXT.setdefault(_k, _v[0].get('text') or ''.join(p['text'] for p in _v[0]['parts']))
@@ -122,10 +125,11 @@ def reading(pl):
 def score(path, k, kana, threads):
     tr = listen.whisper(path, 'large-v3-turbo', threads)
     r = listen.check_reading(tr, kana, EXPECT.get(k))
-    must_ok = all(ok for _, ok in r.get('must', []))
+    neg = [w for w in NEG.get(k, []) if w in tr['text']]
+    must_ok = all(ok for _, ok in r.get('must', [])) and not neg
     p = sum(w['p'] for w in tr['words']) / max(1, len(tr['words']))
     return dict(text=tr['text'], ratio=r.get('ratio'), must_ok=must_ok,
-                must_ng=[a[0] for a, ok in r.get('must', []) if not ok], p=round(p, 3), diffs=r.get('diffs'))
+                must_ng=[a[0] for a, ok in r.get('must', []) if not ok] + ['NEG:' + w for w in neg], p=round(p, 3), diffs=r.get('diffs'))
 
 
 def rank_key(v):

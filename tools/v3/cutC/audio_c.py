@@ -93,12 +93,14 @@ def events(bs):
     B = {b['key']: b for b in bs}
     ft = lambda k, i: (B[k]['f0'] + i) / FPS
     E = {}
-    # C01：当たり f4・2 フレームのヒットストップ → 3 回転して空へ → 「キ」でキラーン → 拳のはずみ 2 回
+    # C01（2026-11-08 修正）：拳がためる →「一発」の「パ」で当たり（2 フレームのヒットストップ）→ 3 回転して空へ
+    # → 声が終わって 0.2 秒あとにキラーン（kira2：効果音だけ。ナレーションには入っていない）→ 拳のはずみ 2 回（飛んでいる間）
     T1 = c01.timing(B['01'])
-    E['c01_hit'] = ft('01', c01.HIT)
-    E['c01_ki'] = ft('01', T1['ki'])
-    f0, f1 = c01.HIT + c01.HOLD, T1['glint']
-    spins, last = [], -14.0
+    E['c01_hit'] = ft('01', T1['hit'])
+    E['c01_ki'] = ft('01', T1['ki'])                    # 光がいちばん大きいフレーム（kira2 の立ち上がりをここへ）
+    E['c01_wind'] = ft('01', T1['wind'])                # 「パンチ」で拳を引く
+    f0, f1 = T1['hit'] + c01.HOLD, T1['glint']
+    spins = []
     for j in range(1, 4):                                  # 回転の角度が 360° の倍数を越えるフレーム（サブフレーム）
         target = -14 + 360 * j - 180                      # 半回転の所（体が横を向いて風を切る）
         for i10 in range(f0 * 10, f1 * 10 + 1):
@@ -108,10 +110,11 @@ def events(bs):
                 spins.append(ft('01', i))
                 break
     E['c01_spins'] = spins
-    E['c01_hops'] = [ft('01', 30), ft('01', 39)]
+    E['c01_hops'] = [ft('01', k) for k in T1['hops']]
     E['c01_end'] = B['02']['f0'] / FPS
-    # C02：止まる（レコードを止めた音）
+    # C02：止まる（レコードを止めた音）。03 の声「でも、現実だと……」は 02 の頭＋LEAD02 から（B['03']['vo']）
     E['c02'] = B['02']['f0'] / FPS
+    E['c03_vo'] = B['03']['vo']
     # C03：当たり（コ−2）→ 殻がカメラに届く（wu0−2）→ 上へ振る（wu0..wb0）→ 雲の穴（wb0+3）→ 下へ振る（wb1）→ クレーター
     T3 = c03.timing(B['03'])
     E['c03_0'] = B['03']['f0'] / FPS
@@ -130,6 +133,10 @@ def events(bs):
     E['c03_hole'] = ft('03', T3['wb0'] + 3)
     E['c03_whipdn'] = ft('03', T3['wb1'])
     E['c03_crater'] = ft('03', T3['wc0'])
+    # 地割れ（2026-11-08 修正 4）：1 段目はショット C の頭＋3 で縁から一気に走る、2 段目は 04 の「1,400」が止まるフレーム
+    G1, G2 = CF.crack_times()
+    E['crack1'] = (a3[1] + G1) / FPS
+    E['crack2'] = (a3[1] + G2) / FPS
     # C04：数字（約1,400トン）が回る → 「ト」で止まる
     T4 = c04.timing(B['04'])
     E['c04_ticks'] = _ticks('04', B, lambda i: c04.value(i, T4), range(T4['ya'] - 1, T4['to']), lambda v: v >= 8, 100.0)
@@ -234,12 +241,28 @@ SFX = {   # 役 → (ファイル, 区間, earshot の読み)。区間は earsho
     'spray': ('water/sprinkle-water1.mp3', None, 'rank splash z+2.73（しぶきの層）'),
     'drop': ('water/water-drop2.mp3', None, '水滴2'),
     'tin': ('chimes/tin1.mp3', None, 'ロゴの小さなチン'),
+    'tremor': ('debris/earth-tremor1.mp3', (2.7, 4.5), 'rank deep earth rumble, fissure opening z+5.37 / find z+3.61（地響き）'),
+    'crackle': ('debris/rock-crack1.mp3', (0.011, 1.983), 'rank ground cracking z+4.51 / find z+3.56（岩にヒビが入る）'),
 }
 
 
 def S(role):
     rel, rng, _ = SFX[role]
     return lab(rel, *(rng or (0.0, None)))
+
+
+def crack_run(d, tre=(2.7, 4.5), crk=(0.011, 1.983), g_crk=1.0, hp_crk=800, swell=0.08):
+    """地割れが走る音：地響き（ローパス 3.5k）＋ヒビ（ハイパス 800 Hz）。swell 秒で立ち上がり、d の 35% から落ちる。"""
+    n = int(d * SR)
+    r = lab(SFX['tremor'][0], *tre)[:n]
+    c = MU.hp(lab(SFX['crackle'][0], *crk), hp_crk)[:n]
+    y = np.zeros(n, np.float32)
+    y[:len(r)] += MU.lp(r, 3500)
+    y[:len(c)] += c * g_crk
+    t = np.arange(n) / SR
+    e = np.minimum(1, t / swell) * np.clip(1 - (t - 0.35 * d) / (0.65 * d), 0, 1) ** 1.5
+    y = y * e
+    return MU.fade(y / max(1e-6, np.abs(y).max()), 0.005, 0.05).astype(np.float32)
 
 
 def thump(vel=1.0, f0=70, f1=38, dur=0.35):
@@ -313,6 +336,12 @@ def sfx_track(n, E):
     cue('c03 cloud hole air', 'shock', E['c03_hole'] + 0.1, -10, 'peak', ha)
     cue('c03 whip down', 'whip', E['c03_whipdn'], -5, 'peak', pitch(S('whip'), -3))
     cue('c03 crater dust settle', 'debris2', E['c03_crater'] + 0.05, -11, 0.0, MU.lp(S('debris2'), 3000))
+    # 地割れが走る（2026-11-08 修正 4）：地響き（earth-tremor1）の低いうなり＋岩にヒビが入る音（rock-crack1、800 Hz より上の
+    # パチパチだけ）を、割れ目が縁から走り出すフレーム（crack1・crack2）に立ち上がり 80ms で重ねる。走りが遅くなるのに合わせて減衰。
+    # earshot match「earth splitting with a deep rumble and cracking rock」z+4.54（1 段目）/ z+3.67（2 段目）、p_real 0.985 / 0.967
+    cue('c03 cracks race out (stage 1: tremor + rock crack)', 'tremor', E['crack1'], -9, 0.0, crack_run(1.4))
+    cue('c04 cracks extend on 1,400 lock (stage 2)', 'tremor', E['crack2'], -7, 0.0,
+        crack_run(0.9, tre=(9.0, 10.0), crk=(0.4, 1.4)))
     # 引きの画：岩の雨（崖の石が落ちる音そのまま・2 秒）＋ 大きな岩（> 3 m）の着地 1 つずつ（後ほど小さく、こもらせる）。
     # earshot（単体）：「heavy rocks and dirt clods falling and thudding onto the ground」z+5.24 / 「a rockfall」z+5.34。
     # 雨を thump の強さで揺らす版は声の下で「squishy wet squelch」と聞こえた（z+3.0）ので、揺らさない
@@ -471,7 +500,7 @@ def ambience_track(n, E, total):
 def music_track(n, E, total):
     m = np.zeros(n, np.float32)
     m += MU.anime(total, E['c01_end'], E['c01_hit'], E['c01_ki'], E['c01_hops']) * A.db(0)
-    m += MU.real_hit(total, E['c03_0'], E['c03_hit']) * A.db(1)
+    m += MU.real_hit(total, E['c03_vo'], E['c03_hit']) * A.db(1)   # 低いうなりは「でも、現実だと……」から（長いため）
     m += MU.pulse(total, E['c03_crater'] - 0.1, E['c06_0'], [E['c04_lock'], E['c05_lock']]) * A.db(-3)
     m += MU.riser(total, E['c06_0'], E['c08_0'] + 0.1) * A.db(-2)
     m += MU.space(total, E['c08_0'] + 0.05, E['c10_0'] + 1.0) * A.db(-1)

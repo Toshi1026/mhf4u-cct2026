@@ -242,12 +242,26 @@ def _strata(Y):
     return col
 
 
-def plate_C():
+# ショット D（05：クレーターの中をのぞきこむ高い斜め。ゾウが碗の中に並ぶのが見えるように、仰角 約 50°）
+D_EYE, D_TGT = (26.0, 192.0, -150.0), (0.0, -9.0, 14.0)
+
+
+def cam_D(over=C_OVER):
+    fov = math.degrees(2 * math.atan(math.tan(math.radians(C_FOV) / 2) * over))
+    return R.Cam3D(D_EYE, D_TGT, fov=fov, w=int(round(W * over)), h=int(round(H * over)))
+
+
+def plate_D():
+    """ショット D の板（plate_C と同じ作り。_C['D_stand']・_C['D_r']・_C['D_XZ']）。"""
+    return plate_C(cam_D(), 'D')
+
+
+def plate_C(cam=None, key='C'):
     """(sRGB の板 1.2 倍, 深さ, cam)。クレーター（層の見える内壁・盛り上がった縁・岩）・放出物の毛布・放射状になぎ倒れた草原・
     地平の空。_C['C_stand']：草が立ったままの板（衝撃波の前線が通る前）、_C['C_r']：各画素の原点からの距離（m、空は大きな値）。"""
-    if 'C' in _C:
-        return _C['C']
-    cam = cam_C()
+    if key in _C:
+        return _C[key]
+    cam = cam or cam_C()
     Hm, ej, bowl, GX, GZ, rock = crater()
     cell = CR['cell']
     D = rays(cam)
@@ -322,10 +336,11 @@ def plate_C():
         img = np.where(g[..., None], col, sky)
         out = np.clip(R.srgb(img), 0, 1).astype(np.float32)
         outs.append(core.grade(out, con=0.16, sat=1.10))
-    _C['C_stand'] = outs[1]
-    _C['C_r'] = np.where(g, r, 1e6).astype(np.float32)
-    _C['C'] = (outs[0], tt, cam)
-    return _C['C']
+    _C[key + '_stand'] = outs[1]
+    _C[key + '_r'] = np.where(g, r, 1e6).astype(np.float32)
+    _C[key + '_XZ'] = (X, Z)                                        # 各画素の地面の (X, Z)（空は Z＝1e5）。_crack が使う
+    _C[key] = (outs[0], tt, cam)
+    return _C[key]
 
 
 def view_C(plate, zoom=1.0, dx=0.0, dy=0.0):

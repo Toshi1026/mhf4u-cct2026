@@ -1,13 +1,15 @@
-"""案C 01（0.0–2.0 秒）「アニメなら、キラーン。」  テロップ「アニメだと」（大・最初のフレームから）。
+"""案C 01（0.0–4.8 秒）「アニメなら、悪役は、パンチ一発で、空のかなたへ。」→（声が終わって 0.2 秒）キラーン（効果音）→ 息。
+テロップ「アニメだと」（大）＋その下に小さく「悪役はパンチ一発で空のかなたへ」（最初のフレームから）。
 
+2026-11-08 クライアント修正：「アニメなら」をゆっくり・間を取る・キラーンはナレーションでなく効果音で、声のあとワンテンポ遅く。
 アニメ版（平面的なマンガの絵柄・太い輪郭はここだけ）：明るい空・マンガの雲・ミントの草原。
-顔のない白い悪役（青いマント）が両手を腰に当てて胸を張る。左下から拳（ヒーローは拳だけ）が速さの線つきで入り、
-f4 でポコッと当たる（拳も悪役もつぶれる 2 フレームのヒットストップ・星形の「ポコッ」・集中線・小さな星）。
-悪役は右上へくるくる 3 回転しながら小さくなって空の点になり、「キ」でキラーン（_art.put_glint_fx を大きく）。
-そのあと拳はぽよんと戻って小さくガッツポーズのように 2 回はずむ。最後まで星がまたたく。
-最初のフレームから：大テロップ「アニメだと」（アニメ＝強調）・拳は画面の中で振り抜いている途中・速さの線。
-カメラ：キラーンの点を中心に 1.00→1.05 のゆっくりした押し込み＋当たりの揺れ。テロップは画面に固定（当たりで小さくポップ）。
-02 はこのビートの最後の絵（world(n-1)）を止めて使う。
+顔のない白い悪役（青いマント）が両手を腰に当てて胸を張って弾む（「悪役は」でぽんと胸を張る）。左下の拳（ヒーローは拳だけ）は
+最初のフレームから画面の中でぷるぷる力をためている（まわりに力の線）。「パンチ」で後ろへ引いて、「一発」の「パ」でポコッと当たる
+（拳も悪役もつぶれる 2 フレームのヒットストップ・星形の「ポコッ」・集中線・小さな星）。
+悪役は「で、空のかなたへ」の間に右上へくるくる 3 回転しながら小さくなって空の点になり、声が終わって GLINT_AFTER 秒あとに
+キラーン（_art.put_glint_fx を大きく。効果音 kira2 がこのフレーム）。拳はぽよんと戻って小さく 2 回はずむ（HOPS）。
+カメラ：キラーンの点を中心に 1.00→1.09 のゆっくりした押し込み＋当たりの揺れ。テロップは画面に固定（当たりで小さくポップ）。
+時刻はすべて timing() から（audio_c が同じ関数で効果音を置く）。02 はこのビートの最後の絵（world(n-1)）を止めて使う。
 """
 import math
 
@@ -28,26 +30,51 @@ DV = np.array([math.cos(math.radians(DIR)), math.sin(math.radians(DIR))])
 FS = 1.62                                      # 拳の大きさ
 CONTACT = (TORSO[0] - 38.0, TORSO[1] + 8.0)    # 拳が当たる所（胴の左）
 HITC = np.array(CONTACT) - 54 * FS * DV        # 当たったときの拳のまんなか
-HIT, HOLD = 4, 2
-STAR = (842.0, 716.0)                          # キラーンの点
-BEZ_C = (1010.0, 900.0)
+HOLD = 2
+S_READY, S_WIND = -300.0, -385.0               # 力をためる所・引いた所（HITC からの打つ向きの距離）
+N_STRIKE = 4                                   # 振り抜くフレーム数
+STAR = (850.0, 815.0)                          # キラーンの点（小テロップの下の空）
+BEZ_C = (1010.0, 960.0)
 TEL_Y = 600                                    # テロップのベースライン
+SUB_Y = 694                                    # 小テロップのベースライン
+SUB_TEXT = '悪役はパンチ一発で空のかなたへ'
 PUSH = 1.09
 
 
 def timing(beat):
+    """hit：「一発」の「パ」の 1 フレーム前に当たる。glint：光りはじめ（glint+5 がいちばん大きい＝ki、効果音 kira2）。
+    ki は声が終わって timeline.GLINT_AFTER 秒あと。aku：「悪役は」の「ア」（胸を張る）。wind：「パンチ」の「パ」（拳を引く）。"""
     mo = beat['moras']
-    assert mo[5][0] == 'キ', mo
-    ki = timeline.mora_frame(beat, 5)
-    return dict(ki=ki, glint=ki - 5)            # 光の一番大きいフレーム（glint+5）が「キ」
+    s = ''.join(m for m, _ in mo)
+    assert s == 'アニメナラアクヤクワパンチイッパツデソラノカナタエ', s
+    assert mo[15][0] == 'パ' and mo[10][0] == 'パ' and mo[5][0] == 'ア', mo
+    hit = timeline.mora_frame(beat, 15) - 1
+    vo_end = beat['vo'] + json_dur('01')
+    ki = round((vo_end + timeline.GLINT_AFTER) * core.FPS) - beat['f0']
+    T_ = dict(hit=hit, ki=ki, glint=ki - 5, aku=timeline.mora_frame(beat, 5), wind=timeline.mora_frame(beat, 10),
+              hops=(hit + HOLD + 18, hit + HOLD + 27))
+    assert T_['wind'] < hit - N_STRIKE - 3 and T_['hops'][1] + 9 < T_['glint'] < beat['n'] - 8, T_
+    return T_
+
+
+def json_dur(key):
+    import json
+    import os
+    return json.load(open(os.path.join(timeline.VO, 'durations.json')))[key]
 
 
 # ---------------------------------------------------------------- 拳
-def fist_s(i):
-    """HITC からの打つ向きの距離（負＝手前）。f0 は振り抜きの途中（画面の中）。"""
+def fist_s(i, T_):
+    """HITC からの打つ向きの距離（負＝手前）。ためる（画面の中・左下）→「パンチ」で引く → 4 フレームで振り抜く。"""
+    HIT = T_['hit']
+    a = HIT - N_STRIKE                         # 振り抜きはじめ
+    if i < T_['wind']:
+        return S_READY
+    if i < a:
+        return S_READY + (S_WIND - S_READY) * M.ease((i - T_['wind']) / float(a - T_['wind']), 'sine_inout')
     if i < HIT:
-        q = (i + 2) / float(HIT + 2)
-        return -330.0 * (1 - q ** 1.6)
+        q = (i - a + 1) / float(N_STRIKE + 1)
+        return S_WIND * (1 - q ** 1.6)
     if i < HIT + HOLD:
         return 6.0
     if i < HIT + HOLD + 3:
@@ -58,28 +85,44 @@ def fist_s(i):
     return -300.0
 
 
-def fist_bob(i):
+def fist_bob(i, T_):
     """引いたあとの小さなはずみ（2 回、ガッツポーズのように上へ）と、ゆっくりした息。"""
     b = 3.0 * math.sin(2 * math.pi * 1.1 * i / core.FPS)
-    for f0 in (30, 39):
+    for f0 in T_['hops']:
         k = i - f0
         if 0 <= k < 9:
             b += -26 * math.sin(math.pi * k / 9.0) ** 1.5
     return b
 
 
-def fist_pose(i):
-    s = fist_s(i)
+def charge(i, T_):
+    """力をためている強さ 0..1（最初から 0.55、引くときに 1、振り抜きで 0）。"""
+    if i >= T_['hit'] - N_STRIKE:
+        return 0.0
+    if i < T_['wind']:
+        return 0.55 + 0.15 * i / float(T_['wind'])
+    return 0.7 + 0.3 * (i - T_['wind']) / float(T_['hit'] - N_STRIKE - T_['wind'])
+
+
+def fist_pose(i, T_):
+    HIT = T_['hit']
+    s = fist_s(i, T_)
     p = HITC + s * DV
-    p = p + np.array([0.0, fist_bob(i) if i >= HIT + HOLD + 12 else 0.0])
+    p = p + np.array([0.0, fist_bob(i, T_) if i >= HIT + HOLD + 12 else 0.0])
+    ch = charge(i, T_)
+    if ch > 0:                                 # ぷるぷる（力をためる）：小刻みに震える
+        p = p + np.array([math.sin(i * 2.9) + 0.6 * math.sin(i * 5.3 + 1), math.cos(i * 3.7) + 0.5 * math.sin(i * 6.1)]) * 2.6 * ch
     sq = (1.0, 1.0)
+    if T_['wind'] <= i < HIT - N_STRIKE:      # 引くときに少しちぢんで力をためる
+        e = M.ease((i - T_['wind']) / float(HIT - N_STRIKE - T_['wind']), 'sine_inout')
+        sq = (1 - 0.06 * e, 1 + 0.05 * e)
     if HIT <= i < HIT + HOLD:
         sq = (0.82, 1.14)                      # 当たりでつぶれる
     elif HIT + HOLD <= i < HIT + HOLD + 4:
         k = (i - HIT - HOLD) / 4.0
         sp = M.spring(k * 0.25, 0.35, 5.0)
         sq = (0.82 + 0.18 * sp, 1.14 - 0.14 * sp)
-    for f0 in (30, 39):                        # はずむときの伸び縮み
+    for f0 in T_['hops']:                      # はずむときの伸び縮み
         k = i - f0
         if 0 <= k < 9:
             e = math.sin(math.pi * k / 9.0)
@@ -90,7 +133,7 @@ def fist_pose(i):
 # ---------------------------------------------------------------- 悪役
 def flight(i, T_):
     """飛ぶ進み（f HIT+HOLD → glint）。(x, y, scale, ang)。"""
-    f0, f1 = HIT + HOLD, T_['glint']
+    f0, f1 = T_['hit'] + HOLD, T_['glint']
     tau = float(np.clip((i - f0) / float(f1 - f0), 0, 1))
     tp = 1 - (1 - tau) ** 1.8
     p = (1 - tp) ** 2 * np.array(TORSO) + 2 * tp * (1 - tp) * np.array(BEZ_C) + tp ** 2 * np.array(STAR)
@@ -100,11 +143,15 @@ def flight(i, T_):
 
 
 def put_villain(f, i, T_, t):
+    HIT = T_['hit']
     if i < HIT:
-        # 胸を張って弾む（足もとを中心に）＋最後に拳に気づいて少しのけぞる
+        # 胸を張って弾む（足もとを中心に）＋「悪役は」でぽんと胸を張る＋最後に拳に気づいて少しのけぞる
         ph = math.sin(2 * math.pi * 2.0 * t)
         sy = 1.02 + 0.02 * ph
-        lean = 6.0 * M.ease((i - 1) / 3.0, 'back_out')
+        ka = i - T_['aku']
+        if 0 <= ka < 10:
+            sy += 0.07 * math.sin(math.pi * ka / 10.0)
+        lean = 6.0 * M.ease((i - (HIT - 3)) / 3.0, 'back_out')
         M2 = A._R(lean) @ np.diag([1 / math.sqrt(sy), sy])
         c = np.array(FEET) + M2 @ (np.array(TORSO) - FEET)
         f = shadow(f, 1.0)
@@ -145,7 +192,7 @@ def shadow(f, a):
 
 def swirl_trail(f, i, T_):
     """くるくる飛ぶ跡：小さくなっていく白い点線の弧＋悪役のまわりの回転の線（マンガ）。"""
-    f0, f1 = HIT + HOLD, T_['glint']
+    f0, f1 = T_['hit'] + HOLD, T_['glint']
     if i < f0 + 1 or i > f1 + 10:
         return f
     a_all = 1.0 if i <= f1 else 1 - (i - f1) / 10.0
@@ -180,9 +227,9 @@ def fx_assets():
     return _FX
 
 
-def put_impact(f, i, layer='back'):
+def put_impact(f, i, T_, layer='back'):
     fx = fx_assets()
-    k = i - HIT
+    k = i - T_['hit']
     if k < 0 or k > 22:
         return f
     if layer == 'front':
@@ -230,11 +277,11 @@ def put_impact_front(f, k, fx):
     return f
 
 
-def speed_lines(f, i):
-    """振り抜く拳のうしろの白い速さの線（f0–HIT）。"""
-    if i >= HIT:
+def speed_lines(f, i, T_):
+    """振り抜く拳のうしろの白い速さの線（振り抜きの 4 フレーム）。"""
+    if not T_['hit'] - N_STRIKE <= i < T_['hit']:
         return f
-    p, _ = fist_pose(i)
+    p, _ = fist_pose(i, T_)
     L = core.SS(s=2)
     d = L.draw
     n = np.array([-DV[1], DV[0]])
@@ -243,6 +290,34 @@ def speed_lines(f, i):
         o = p + back * (110 * FS) + n * off * FS
         e = o + back * ln
         d.polygon(L.p([tuple(o + n * wd / 2), tuple(o - n * wd / 2), tuple(e)]), fill=L.col(core.FOAM, 0.9))
+    return T.paste(f, L.done(), 0, 0)
+
+
+def charge_lines(f, i, T_):
+    """力をためる拳のまわりの短い線（マンガの「ぐぐっ」）：拳を囲む 9 本が 6 フレームごとに外へ広がって消える。"""
+    ch = charge(i, T_)
+    if ch <= 0:
+        return f
+    p, _ = fist_pose(i, T_)
+    c = p - DV * 10 * FS
+    L = core.SS(s=2)
+    d = L.draw
+    for wave in (0, 1):
+        q = ((i + 4 * wave) % 8) / 8.0
+        a = ch * min(1.0, 1.25 * math.sin(math.pi * q) ** 0.6)
+        for j in range(8):
+            ang = math.radians(-160 + j * 40 + 20 * wave + 5 * math.sin(i * 0.3 + j))
+            u = np.array([math.cos(ang), math.sin(ang)])
+            n = np.array([-u[1], u[0]])
+            r0 = (88 + 34 * q) * FS
+            ln = (30 + 16 * ch) * FS * (1 - 0.35 * q)
+            o, e = c + u * r0, c + u * (r0 + ln)
+            wd = 22.0 * (1 - 0.45 * q)
+            poly = [tuple(o + n * wd / 2), tuple(e + n * wd * 0.22), tuple(e - n * wd * 0.22), tuple(o - n * wd / 2)]
+            d.polygon(L.p(poly), fill=L.col(T.OUT, a))
+            o2, e2 = o + u * 5, e - u * 5
+            poly2 = [tuple(o2 + n * wd * 0.25), tuple(e2 + n * wd * 0.08), tuple(e2 - n * wd * 0.08), tuple(o2 - n * wd * 0.25)]
+            d.polygon(L.p(poly2), fill=L.col(core.FOAM, a))
     return T.paste(f, L.done(), 0, 0)
 
 
@@ -257,9 +332,18 @@ def telop():
     return _TX['t']
 
 
-def put_telop(f, i):
+def sub_telop():
+    """小テロップ（白・縁取り。強調色は使わない：1 画面 1 語の強調は「アニメ」）。"""
+    if 's' not in _TX:
+        _TX['s'] = T.outlined_text(SUB_TEXT, 46, T.CLOUD, 6, weight='Black', track=0.02, shadow=(4, 0.5), rot=-3.0)
+    return _TX['s']
+
+
+def put_telop(f, i, T_):
+    rs, (sx, sy) = sub_telop()
+    f = T.paste(f, rs, W / 2 - sx, SUB_Y - sy)
     rgba, (bx, by) = telop()
-    k = i - HIT
+    k = i - T_['hit']
     s = 1.0
     if 0 <= k < 8:                              # 当たりで小さくポップ（1.0→1.05→1.0）
         s = 1 + 0.05 * math.sin(math.pi * k / 8.0)
@@ -269,10 +353,10 @@ def put_telop(f, i):
     return T.paste(f, rgba, W / 2 - bx, TEL_Y - by)
 
 
-def cam(i, n):
+def cam(i, n, T_):
     q = i / float(max(n - 1, 1))
     k = 1 + (PUSH - 1) * (0.35 * q + 0.65 * M.ease(q, 'sine_inout'))
-    sh = M.shake(i, HIT, amp=11.0, tau=2.5, rot_deg=0.5, seed=21)
+    sh = M.shake(i, T_['hit'], amp=11.0, tau=2.5, rot_deg=0.5, seed=21)
     c, s = math.cos(math.radians(sh[2])) * k, math.sin(math.radians(sh[2])) * k
     cx, cy = STAR
     return np.float32([[c, -s, cx - c * cx + s * cy + sh[0]], [s, c, cy - s * cx - c * cy + sh[1]]])
@@ -287,18 +371,19 @@ def world(i, beat, T_=None):
     for rgba, x0, y0, sp in T.clouds():
         f = T.paste_f(f, rgba, x0 + sp * i, y0)
     f = swirl_trail(f, i, T_)
-    f = put_impact(f, i, 'back')
+    f = put_impact(f, i, T_, 'back')
     g = T_['glint']
     if i < g:
         f = put_villain(f, i, T_, t)
     else:
         tw = 0.8 + 0.2 * math.cos((i - g) * 0.45)
         f = A.put_dot(f, STAR[0], STAR[1], 2.6, alpha=tw)
-    f = speed_lines(f, i)
-    p, sq = fist_pose(i)
+    f = speed_lines(f, i, T_)
+    f = charge_lines(f, i, T_)
+    p, sq = fist_pose(i, T_)
     rgba, x0, y0 = T.fist_patch(p[0], p[1], DIR, FS, sq)
     f = T.paste(f, rgba, x0, y0)
-    f = put_impact(f, i, 'front')
+    f = put_impact(f, i, T_, 'front')
     # キラーン（大きめ）＋そのあとの小さなまたたき（明るさは 1 回だけ上がって下がる）
     f = A.put_glint_fx(f, STAR[0], STAR[1], i - g, r=78.0, rot=24.0)
     k = i - g - 24
@@ -306,7 +391,7 @@ def world(i, beat, T_=None):
         a = 0.55 * (0.5 - 0.5 * math.cos(2 * math.pi * k / 14.0))
         f = A.put_glint(f, STAR[0], STAR[1], 16.0 + 4 * a, ang=12.0 + k * 1.5, alpha=a)
     f = T.paste(f, T.fg_grass(i), 0, 0)
-    f = cv2.warpAffine(f, cam(i, n), (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+    f = cv2.warpAffine(f, cam(i, n, T_), (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
     return np.clip(f, 0, 1)
 
 
@@ -315,5 +400,5 @@ def render(beat, ctx):
     T_ = timing(beat)
     for i in range(n):
         f = world(i, beat, T_)
-        f = put_telop(f, i)
+        f = put_telop(f, i, T_)
         yield np.clip(f, 0, 1).astype(np.float32)

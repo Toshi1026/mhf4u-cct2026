@@ -3,9 +3,13 @@
 声を差し替えたら vo_C の wav と durations.json / moras.json を作り直すだけで全体が追従する（tools/v3/cutC/vo_c.py → vo_align.py）。
 
 長さ＝ max(MIN, LEAD + PRE + 声の長さ + GAP + TAIL)。FIXED は声に関係なく固定。
-  01：最短 1.6 秒（48f）。拳のはずみ（f30・f39、各9f）が終わったところで切る。2.0 秒だと後半が空の草原で間延びし、
-      03 の一撃が 3.27 秒になる → 1.6 秒で一撃が 2.87 秒（最初の3秒に入る）。
-  02：「現実だと」で一瞬止まる（レコードを止めた音）0.4 秒。
+  2026-11-08 クライアント修正（フックの間）：
+  01：「アニメなら、悪役は、パンチ一発で、空のかなたへ。」（ゆっくり・楽しげ）→ 声が終わって GLINT_AFTER 秒あとに
+      キラーン（効果音 kira2 と光のいちばん大きい所）→ BREATH 秒の息 → 02。長さ＝LEAD＋声＋GLINT_AFTER＋BREATH。
+  02：「現実だと」で止まる（レコードを止めた音）。03 の声「でも、現実だと……」は 02 の頭＋LEAD02 から始まり（VO_EARLY）、
+      止まった絵の上で言い切る。02 の長さ＝LEAD02＋「コ」までの時間−PRE_KO（「……」の間に現実の CG へ切り替わる）。
+  03：頭（02 の終わり）から PRE_KO 秒のスローの拳 →「コ」の 2 フレーム前に当たる。「コ」のあとは POST_KO フレーム
+      （修正前と同じ。03 の引き〜05 の時間の流れ（_cfx）を変えない）。
   10：宇宙から着水まで一気にズームイン。悪役の悲鳴（vo_C/scream.wav）を SCREAM_AT 秒から。約 3.4 秒。
   16：エンドカード（看板 → ロゴ）2.4 秒。
   08：「……宇宙です」の「……」ぶんの間を PRE で声の前に置く。
@@ -22,8 +26,14 @@ VO = os.environ.get('MAZE_VO_C', os.path.join(OUT, 'vo_C'))
 SCREAM = os.path.join(VO, 'scream_client.wav')   # 2026-11-08 クライアント本人が演じた録音（本人確認済み）。TANAKA 版は vo_C/scream.wav
 LEAD, GAP = 0.08, 0.14
 ORDER = ['%02d' % i for i in range(1, 17)]
-FIXED = {'02': 0.40, '10': 3.40, '16': 2.40}
-MIN = {'01': 1.60, '03': 2.60, '14': 2.40}   # 01：キラーンのあと拳が2回はずんだら切る（空の草原で間延びさせない。パンチの一撃を3秒以内に）
+FIXED = {'10': 3.40, '16': 2.40}
+MIN = {'14': 2.40}
+GLINT_AFTER, BREATH = 0.20, 0.45   # 01：声の終わり → キラーン（光のいちばん大きい所）→ 息 → 02
+LEAD02 = 0.12                      # 02 の頭（止まる音）から「でも」まで
+VO_EARLY = {'03': '02'}            # 03 の声は 02 の頭から
+KO_INDEX = 8                       # 03 のモーラ「コ」（デモゲンジツダト|コオナル）
+PRE_KO = 0.50                      # 現実の CG（03）は「コ」の 0.5 秒前から（「……」の間）
+POST_KO = 50                       # 03 の「コ」のあとのフレーム数（修正前と同じ）
 PRE = {'08': 0.10}            # 08 のテイクには「……」の息（約 0.26 秒）が頭に入っている
 TAIL = {'14': 1.20}
 SCREAM_AT = 0.10            # 10 の頭から悲鳴が始まるまで（秒）
@@ -34,13 +44,25 @@ def load():
     mp = os.path.join(VO, 'moras.json')
     mor = json.load(open(mp)) if os.path.exists(mp) else {}
     beats, t = [], 0.0
+    early = {}                                   # 前のビートで始まる声：key → 声の頭（秒）
     for k in ORDER:
-        if k in FIXED:
+        v0 = t + LEAD + PRE.get(k, 0) if k in dur else None
+        if k in early:
+            v0 = early[k]
+        if k == '01':
+            d = LEAD + dur['01'] + GLINT_AFTER + BREATH
+        elif k in VO_EARLY.values():             # 02：次の声（03）の「コ」の PRE_KO 秒前まで
+            nk = next(a for a, b in VO_EARLY.items() if b == k)
+            early[nk] = t + LEAD02
+            d = LEAD02 + mor[nk][KO_INDEX][1] - PRE_KO
+        elif k in VO_EARLY:                      # 03：「コ」のあと POST_KO フレーム
+            assert mor[k][KO_INDEX][0] == 'コ', mor[k]
+            d = (round((v0 + mor[k][KO_INDEX][1]) * FPS) + POST_KO) / FPS - t
+        elif k in FIXED:
             d = FIXED[k]
         else:
             d = max(MIN.get(k, 0), LEAD + PRE.get(k, 0) + dur.get(k, 0) + GAP + TAIL.get(k, 0))
         f0, f1 = round(t * FPS), round((t + d) * FPS)
-        v0 = t + LEAD + PRE.get(k, 0) if k in dur else None
         b = dict(key=k, f0=f0, f1=f1, n=f1 - f0, vo=v0,
                  moras=[(m, v0 + s) for m, s in mor.get(k, [])] if v0 is not None else [])
         if k == '10':

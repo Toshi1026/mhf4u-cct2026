@@ -42,7 +42,7 @@ def finish(silent):
                     '-filter_complex', '[1:a]afade=t=in:d=0.01[a]', '-map', '0:v',
                     '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k', '-ar', '48000', '-shortest',
                     '-movflags', '+faststart', out], check=True)
-    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', out, '-vf', 'fps=2,scale=216:384,tile=10x7:padding=4',
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', out, '-vf', 'fps=2,scale=216:384,tile=10x8:padding=4',
                     '-frames:v', '1', os.path.join(core.OUT, 'sheet_C.png')], check=True)
     print('wrote', out)
 

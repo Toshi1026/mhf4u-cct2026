@@ -8,7 +8,9 @@
     前線に低い砂ぼこりの帯）。
   ・カメラ：ショット C の頭は寄り（1.30 倍）から一気に引いて大きさを見せ（引きの速さは expo_out）、そのあと 05 の終わりまで
     ゆっくり押し込む。かたまりが落ちるたびに小さく揺れる。
-白く光らせない。水・地割れ・建物は描かない。
+  ・地割れ（2026-11-08 クライアント修正 4）：縁から外の草原へ、枝分かれしながら走る放射状のひび（_crack）。
+    1 段目はショット C の頭＋3（crack_times()[0]）、2 段目は 04 の「1,400」が止まるフレーム。前線に小さな砂ぼこり。
+白く光らせない。水・建物・道は描かない（地割れは開けた草原の中だけ）。
 """
 import math
 
@@ -19,7 +21,7 @@ import core
 from core import W, H
 import timeline_c as timeline
 from cutB.beats import _motion as M
-from cutC.beats import _shots as SH, _fx as FX, _blast as BL
+from cutC.beats import _shots as SH, _fx as FX, _blast as BL, _crack as CK
 
 ZOOM = (1.0, 1.13)
 PULL = 0.38                                        # ショット C の頭の寄り（引いて大きさを見せる）
@@ -47,6 +49,57 @@ def g_c0():
     """ショット C の始まりの gt。"""
     a = anchors()
     return a[2] - a[1]
+
+
+def crack_times():
+    """(G1, G2)：地割れの 1 段目・2 段目が走りはじめる gt。G1＝ショット C の頭＋3、G2＝04 の「ト」（1,400 で止まる）。"""
+    if 'ct' not in _C:
+        from cutC.beats import c04
+        b4 = next(b for b in timeline.load() if b['key'] == '04')
+        a = anchors()
+        _C['ct'] = (g_c0() + 3, b4['f0'] + c04.timing(b4)['to'] - a[1])
+    return _C['ct']
+
+
+def plate(shot):
+    return SH.plate_D() if shot == 'D' else SH.plate_C()
+
+
+def _crack_smp(shot='C'):
+    """板の画素ごとの地割れの場（割れ目がかかる行だけ）。"""
+    if ('crk', shot) not in _C:
+        plate(shot)
+        X, Z = SH._C[shot + '_XZ']
+        G1, G2 = crack_times()
+        smp = CK.sample(X, Z, G1, G2)
+        rows = np.nonzero((smp[0] < CK.NONE * 0.5).any(1))[0]
+        y0, y1 = int(rows[0]), int(rows[-1]) + 1
+        _C[('crk', shot)] = (y0, y1, tuple(m[y0:y1] for m in smp))
+    return _C[('crk', shot)]
+
+
+def put_cracks(src, g, shot='C'):
+    y0, y1, smp = _crack_smp(shot)
+    if g < crack_times()[0]:
+        return src
+    src = src.copy()
+    src[y0:y1] = CK.shade(src[y0:y1], smp, g)
+    return src
+
+
+def crack_items(cam, Mm, g):
+    """地割れの前線が通った所の小さな砂ぼこり（14 フレームでふくらんで消える）。"""
+    items = []
+    G1, G2 = crack_times()
+    for j, (x, z, a, w) in enumerate(CK.fronts(G1, G2, g)):
+        q = a / 14.0
+        sz = (2.2 + 1.4 * w) * (0.5 + 1.1 * q)
+        if ('gy', round(x, 1), round(z, 1)) not in _C:
+            _C[('gy', round(x, 1), round(z, 1))] = _ground_y(x, z)
+        y0 = _C[('gy', round(x, 1), round(z, 1))]
+        _puff_item(items, cam, Mm, (x, y0 + sz * 0.35 + 1.5 * q, z), sz, 0.55 * (1 - q) ** 1.2 * min(1.0, a + 0.5) ,
+                   j, 'soil', 0.9)
+    return items
 
 
 def zoom_at(beat, i):
@@ -121,7 +174,7 @@ def _ground_y(x, z):
     return float(SH._grid_sample(Hm, np.float32([[x]]), np.float32([[z]]))[0, 0])
 
 
-def dust_items(cam, Mm, g, alpha=1.0):
+def dust_items(cam, Mm, g, alpha=1.0, smoke=1.0):
     D = _rng()
     items = []
     # 転がる砂煙の輪（下の段は大きく濃い、上の段はうすい。上下にうねる）
@@ -155,7 +208,7 @@ def dust_items(cam, Mm, g, alpha=1.0):
             _puff_item(items, cam, Mm, P, sz, ad * (0.85 + 0.15 * u), int(k), 'soil', dark)
     # 晴れたあとも残る煙：底からうすく立ちのぼる、岩からくすぶる細い煙
     sm = D['smoke']
-    a_s = alpha * float(np.clip((g - 30) / 25.0, 0, 1))
+    a_s = alpha * smoke * float(np.clip((g - 30) / 25.0, 0, 1))
     if a_s > 0.01:
         for x, z, ph, s, k, fl in zip(sm['x'], sm['z'], sm['ph'], sm['s'], sm['k'], sm['floor']):
             if ('gy', x, z) not in _C:
@@ -233,28 +286,36 @@ def thump(g):
     return 1 - math.exp(-float(np.sum(ch.size[m] * np.exp(-age[m] / 1.6))) / 10.0)
 
 
-def frame_C(beat, i, extra=None):
-    """ショット C の 1 フレーム（sRGB）と、そのときの (cam, Mm)。extra(f, cam, Mm, g)：砂煙の手前に描く物（05 のゾウ）。"""
-    plate, dep, cam = SH.plate_C()
+def zoom_D(beat, i):
+    """ショット D（05）：1.00 → 1.14 の押し込み（ゾウが詰まっていくクレーターの中へ寄る）。"""
+    q = i / float(max(beat['n'] - 1, 1))
+    return 1.0 + 0.14 * (0.3 * q + 0.7 * M.ease(q, 'sine_inout'))
+
+
+def frame_C(beat, i, extra=None, shot='C', smoke=1.0):
+    """ショット C（または D：05 の中をのぞく画）の 1 フレーム（sRGB）と、そのときの (cam, Mm)。
+    extra(f, cam, Mm, g)：砂煙の手前に描く物（05 のゾウ）。smoke：くすぶる煙の濃さ。"""
+    pl, dep, cam = plate(shot)
     g = gt(beat, i)
     Rs = sweep_R(g)
     if Rs < 2700:                                       # 前線の外は草が立ったまま
-        if 'rsm' not in _C:
-            _C['rsm'] = SH._C['C_r']
-        m = np.clip((_C['rsm'] - Rs) / 40.0 + 0.5, 0, 1)[..., None]
-        src = plate * (1 - m) + SH._C['C_stand'] * m
+        rsm = SH._C[shot + '_r']
+        m = np.clip((rsm - Rs) / 40.0 + 0.5, 0, 1)[..., None]
+        src = pl * (1 - m) + SH._C[shot + '_stand'] * m
         # 前線のすぐ内側：倒れたばかりの葉のつやが少し明るい帯
-        band = np.exp(-((_C['rsm'] - Rs + 60.0) / 70.0) ** 2)[..., None] * 0.07
+        band = np.exp(-((rsm - Rs + 60.0) / 70.0) ** 2)[..., None] * 0.07
         src = src + (0.85 - src) * band
     else:
-        src = plate
-    f, Mm = SH.view_C(src, zoom_at(beat, i))
+        src = pl
+    src = put_cracks(src, g, shot)
+    f, Mm = SH.view_C(src, zoom_D(beat, i) if shot == 'D' else zoom_at(beat, i))
     f = f.copy()
     if extra is not None:
         f = extra(f, cam, Mm, g)
-    items = dust_items(cam, Mm, g)
+    items = dust_items(cam, Mm, g, smoke=smoke)
     items += landing_items(cam, Mm, g)
     items += trail_items(cam, Mm, g)
+    items += crack_items(cam, Mm, g)
     items += chunks_C().items(g, cam, M2=Mm, near=20.0, max_px=120.0)
     f = BL.draw_sorted(f, items, split_z=float(np.linalg.norm(cam.eye)))
     return f, cam, Mm, g

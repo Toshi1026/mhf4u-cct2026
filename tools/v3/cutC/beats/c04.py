@@ -1,11 +1,13 @@
-"""案C 04（約 1.6 秒）「約1,400トン。」  テロップ 約**1,400**トン（1,400＝強調）。
+"""案C 04（約 2.5 秒）「パンチの威力は、約1,400トン！」  テロップ 小「パンチの威力」＋ 約**1,400**トン（1,400＝強調）。
+2026-11-08 クライアント修正 3：数字だけでは何が 1,400 トンか伝わらないので「威力」を必ず入れる。小テロップ「パンチの威力」は
+ビートの頭（「パンチの威力は」と言っている所）から数字の上に出て、数字と一緒に抜ける。
 
 03 の最後の引き（ショット C）の続き：えぐれたクレーターの中にまだ砂煙がたまってゆっくり上がり、砂煙の壁は遠くへ広がる。
 カメラは 03 から 05 まで 1 本のゆっくりした押し込み（_cfx.zoom_at）。03 の最後から続く砂煙のドームがゆっくり晴れて、
 「ト」（1,400 で止まる）のころに深いクレーター（層の見える内壁・盛り上がった縁・岩・くすぶる煙）が現れる（_cfx）。
 落ちてくる大きなかたまりのたびに画面がごく小さく揺れる。
-数字はオドメーター（_motion.Odometer、やわらかい列）：「ヤ」の 1 フレーム前から回りはじめ（「約0トン」は見せない）、
-「ト」で 1,400 に止まる（落ち＋1.10→1.00）。止まったときに画面がごく小さく揺れる（文字は揺らさない）。
+数字はオドメーター（_motion.Odometer、やわらかい列）：「約」の「ヤ」の 1 フレーム前から回りはじめ（「約0トン」は見せない）、
+「トン」の「ト」で 1,400 に止まる（そのフレームで地割れの 2 段目が走る：_cfx.crack_times）（落ち＋1.10→1.00）。止まったときに画面がごく小さく揺れる（文字は揺らさない）。
 文字の位置は 02・03 の「現実だと」と同じベースライン（y 600）。文字の後ろだけ空をごく弱く暗くして読みやすく。
 最後の 5 フレームで数字は上へぼけて抜ける（05 の「ゾウ250頭分」が同じ所に出る）。
 """
@@ -21,14 +23,37 @@ from cutB.beats import _render as R, _motion as M
 from cutC.beats import _cfx as CF
 
 TEL_Y = 600
+CAP_Y, CAP_SIZE = 452, 60                     # 小テロップ「パンチの威力」
 _C = {}
 
 
 def timing(beat):
     mo = beat['moras']
-    assert mo[0][0] == 'ヤ' and mo[8][0] == 'ト', mo
+    s = ''.join(m for m, _ in mo)
+    assert s == 'パンチノイリョクワヤクセンヨンヒャクトン', s
+    assert mo[8][0] == 'ヤ' and mo[16][0] == 'ト' and mo[4][0] == 'イ', mo
     mf = lambda k: timeline.mora_frame(beat, k)
-    return dict(ya=mf(0), to=mf(8), out=beat['n'] - 5)
+    return dict(pa=mf(0), iryoku=mf(4), ya=mf(8), to=mf(16), out=beat['n'] - 5)
+
+
+def cap_layer(text='パンチの威力', y=CAP_Y, size=CAP_SIZE):
+    """数字の上の小テロップ（Bold・白・影。強調色は使わない：1 画面 1 語の強調は数字）。"""
+    key = ('cap', text, y, size)
+    if key not in _C:
+        _C[key] = core.text_layer([dict(text=text, x=W / 2, y=y, size=size, weight='Bold', track=0.06, shadow=1.0)])
+    return _C[key]
+
+
+def put_cap(f, layer, a, dy=0.0, blur=0.0):
+    t, sh = layer
+    if abs(dy) > 1e-3:
+        Mm = np.float32([[1, 0, 0], [0, 1, dy]])
+        t = cv2.warpAffine(t, Mm, (t.shape[1], t.shape[0]), flags=cv2.INTER_LINEAR)
+        sh = cv2.warpAffine(sh, Mm, (sh.shape[1], sh.shape[0]), flags=cv2.INTER_LINEAR)
+    if blur > 0.3:
+        t = cv2.GaussianBlur(t, (0, 0), blur)
+        sh = cv2.GaussianBlur(sh, (0, 0), blur)
+    return core.put_text(f, (t, sh), a)
 
 
 def odo():
@@ -54,6 +79,13 @@ def value(t, T):
 
 def put_text(f, i, T, beat):
     o = odo()
+    # 小テロップ「パンチの威力」：頭から 5 フレームで下からふわっと、最後は数字と一緒に上へぼけて抜ける
+    qa = M.ease((i + 1) / 5.0, 'cubic_out')
+    if i < T['out']:
+        f = put_cap(f, cap_layer(), qa, dy=12 * (1 - qa))
+    else:
+        q = M.ease((i - T['out'] + 1) / 5.0, 'cubic_in')
+        f = put_cap(f, cap_layer(), 1 - q, dy=-30 * q, blur=6 * q)
     if i < T['ya'] - 1:
         return f
     v = value(i, T)

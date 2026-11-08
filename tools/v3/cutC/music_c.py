@@ -202,13 +202,17 @@ def anime(total, t_end, hit, ki, hops):
     """C01。hit＝当たり、ki＝キラーン（光の一番大きい時刻）、hops＝拳がはずむ時刻 2 つ。t_end で止まる。"""
     out = np.zeros(int(total * SR), np.float32)
     b = 0.25                                              # 8分（120BPM）
-    for k, m in enumerate([41, 48, 41, 48, 41]):         # ベース：F2 C3（4分）
-        if k * 2 * b < t_end:
-            add(out, pizz(hz(m), 0.45, 0.9, 0.7), k * 2 * b)
-    for k in range(4):                                    # 裏拍：A3+C4 / G3+C4 の重音
+    # 2026-11-08：01 が 4.8 秒にのびたので、ベースと裏拍を止まる所（t_end）まで続ける（当たりのあとは少し小さく）
+    k = 0
+    while k * 2 * b < t_end - 0.2:                        # ベース：F2 C3（4分）
+        add(out, pizz(hz([41, 48][k % 2]), 0.45, 0.9 if k * 2 * b < hit else 0.6, 0.7), k * 2 * b)
+        k += 1
+    k = 0
+    while (2 * k + 1) * b < t_end - 0.15:                 # 裏拍：A3+C4 / G3+C4 の重音
         t = (2 * k + 1) * b
         for m in ([57, 60] if k % 2 == 0 else [55, 60]):
-            add(out, pizz(hz(m), 0.25, 0.42), t)
+            add(out, pizz(hz(m), 0.25, 0.42 if t < hit else 0.26), t)
+        k += 1
     add(out, pizz(hz(72), 0.3, 0.75), 0.0)                # 頭：C5
     # 当たり → キラーン：16分で F4 → F6 へ駆け上がる（悪役が空へ飛ぶ）
     run = [65, 69, 72, 77, 81, 84, 89]

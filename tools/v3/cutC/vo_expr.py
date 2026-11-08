@@ -15,6 +15,14 @@ intonationScale（＝スタイルの強さ）、tempoDynamicsScale、話速、�
   その後 <venv>/bin/python -I tools/v3/cutC/vo_align.py run exports/v3/vo_C で moras.json。
 
 旧（平らな）版は exports/v3/vo_C/_flat_backup/ に置いてある（vo_c.py で作った Calm・話速 1.12 一律の版）。
+
+2026-11-08 修正5（クライアント：「アニメなら」をゆっくり・間を取って説明を足す／キラーンはナレーションでなく効果音／
+1,400トンに「威力」を入れる）で 01・03・04 の文が変わった。この3行は --fix5 を付けて別の置き場で作り直す：
+  python3 tools/v3/cutC/vo_expr.py takes --fix5 [--lines 01]        → exports/v3/voice_cands/C_fix5/<NN>/
+  python3 tools/v3/cutC/vo_expr.py verify --fix5 / rank --fix5
+  <venv>/bin/python tools/v3/cutC/vo_expr.py collect --fix5 --partial 01=<name> 03=<name> 04=<name>
+      → 選んだ行だけ vo_C/ を差し替え（前の版は vo_C/_prev_fix5/ に退避）、json は他の行を残してマージ
+長さの範囲は旧版の比（文が違うので使えない）ではなく、TARGET の秒数で見る。
 """
 import argparse
 import itertools
@@ -41,6 +49,13 @@ SR = vo_c.SR
 LINES = vo_c.LINES
 OLD_DUR = json.load(open(os.path.join(FLAT, 'durations.json')))
 DUR_LO, DUR_HI = 0.85, 1.15
+# 修正5で文が変わった行は、旧版との比でなく秒数（トリム後）の範囲で見る
+TARGET = {'01': (2.6, 4.4), '03': (1.6, 3.0), '04': (1.6, 2.8)}
+FIX5 = ('01', '03', '04')
+PREV5 = os.path.join(OUT, '_prev_fix5')
+if '--fix5' in sys.argv:                   # 修正5のテイクは別の置き場（旧テイクの expr.json と名前がぶつからないように）
+    sys.argv.remove('--fix5')
+    TAKES = os.path.join(ROOT, 'exports', 'v3', 'voice_cands', 'C_fix5')
 
 S_N, S_C, S_F, S_H, S_M, S_SH, S_SU = 'ノーマル', 'Calm', 'Far', 'Heavy', 'Mid', 'Shout', 'Surprise'
 
@@ -48,23 +63,42 @@ S_N, S_C, S_F, S_H, S_M, S_SH, S_SU = 'ノーマル', 'Calm', 'Far', 'Heavy', 'M
 #   texts：表記（parts 形式も可。parts の各要素に style を書けば、その部分だけ別スタイル）
 #   styles × intons × tempos × speeds の全組み合わせを作る（ノーマルは intonationScale が効かないので 1.0 だけ）
 PLAN = {
-    '01': dict(aim='楽しげ・おどけて（アニメならキラーン）',
-               texts=[dict(parts=[dict(text='アニメなら、'), dict(text='キラーンっと！', cut_last=True, style=S_SU)],
-                           gaps=[0.12]),
-                      dict(parts=[dict(text='アニメなら、'), dict(text='キラーンっと！', cut_last=True, style=S_SH)],
-                           gaps=[0.12]),
-                      dict(parts=[dict(text='アニメなら？'), dict(text='キラーンっと！', cut_last=True, style=S_SU)],
-                           gaps=[0.12])],
-               styles=[S_M, S_SU, S_N], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.12]),
-    '03': dict(aim='不穏に溜める（現実だと、こうなる）',
-               texts=[dict(text='げんじつだと、こうなる。'), dict(text='げんじつだと……こうなる。'),
-                      dict(text='げんじつだと、こうなる…。')],
-               styles=[S_H, S_F, S_M, S_C], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.06, 1.12]),
-    '04': dict(aim='数字を言い切る（約1,400トン）',
-               texts=[dict(text='やく、せんよんひゃくトン！'), dict(text='やく！せんよんひゃくトン！'),
-                      dict(text='やく、せんよんひゃく、トン！'),
-                      dict(parts=[dict(text='やく、'), dict(text='せんよんひゃくトン！', style=S_SU)], gaps=[0.06]),
-                      dict(parts=[dict(text='やく、'), dict(text='せんよんひゃく、トン！', style=S_SU)], gaps=[0.06])],
+    # 2026-11-08 修正5：01・03・04 は文が変わった（旧 01「アニメなら、キラーン」03「現実だと、こうなる」04「約1,400トン」）。
+    # キラーンは効果音（効果音ラボ kira2）だけにして、ナレーションでは説明を足す。01 はゆっくり（話速 0.95〜1.0）・おどけて、
+    # 読点で自然な間。03 は「……」で本当に間をあけてから「こうなる」。04 は「威力」を必ず入れて数字を言い切る
+    '01': dict(aim='ゆっくり・おどけて説明（アニメなら、悪役は、パンチ一発で、空のかなたへ）',
+               texts=[dict(text='アニメなら、悪役は、パンチ一発で、空のかなたへ。'),
+                      dict(text='アニメなら？悪役は、パンチ一発で、空のかなたへ！'),
+                      dict(text='アニメなら、悪役は、パンチ一発で、空のかなたへ。', pause_scale=1.5),
+                      dict(parts=[dict(text='アニメなら、'), dict(text='悪役は、パンチ一発で、'),
+                                  dict(text='空のかなたへ！', style=S_SU)], gaps=[0.24, 0.10]),
+                      # 「アニメなら」だけさらにゆっくり（部分ごとの話速）＋そのあとの間を長めに
+                      dict(parts=[dict(text='アニメなら、', speed=0.85), dict(text='悪役は、パンチ一発で、'),
+                                  dict(text='空のかなたへ！', style=S_SU)], gaps=[0.30, 0.10]),
+                      dict(parts=[dict(text='アニメなら、', speed=0.9), dict(text='悪役は、パンチ一発で、'),
+                                  dict(text='空のかなたへ！', style=S_SU)], gaps=[0.28, 0.10]),
+                      # 旧 01 の「アニメなら？」（話速 1.12）は 0.64 秒。t4/t5 でも 0.65 秒と変わらなかったので、さらに落とす
+                      dict(parts=[dict(text='アニメなら、', speed=0.75), dict(text='悪役は、パンチ一発で、'),
+                                  dict(text='空のかなたへ！', style=S_SU)], gaps=[0.32, 0.10]),
+                      dict(parts=[dict(text='アニメなら？', speed=0.72), dict(text='悪役は、パンチ一発で、'),
+                                  dict(text='空のかなたへ！', style=S_SU)], gaps=[0.32, 0.10]),
+                      dict(parts=[dict(text='アニメなら〜、', speed=0.85), dict(text='悪役は、パンチ一発で、'),
+                                  dict(text='空のかなたへ！', style=S_SU)], gaps=[0.30, 0.10])],
+               styles=[S_M, S_SU, S_N], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[0.95, 1.0]),
+    '03': dict(aim='不穏に溜める（でも、現実だと……こうなる）',
+               texts=[dict(text='でも、げんじつだと……こうなる。'),
+                      dict(text='でも、げんじつだと……こうなる。', pause_scale=1.6),
+                      dict(parts=[dict(text='でも、げんじつだと……'), dict(text='こうなる。')], gaps=[0.32]),
+                      dict(parts=[dict(text='でも、げんじつだと、'), dict(text='こうなる。')], gaps=[0.42])],
+               styles=[S_H, S_F, S_C], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.0, 1.06]),
+    '04': dict(aim='「威力」を入れて数字を言い切る（パンチの威力は、約1,400トン）',
+               texts=[dict(text='パンチのいりょくは、やく、せんよんひゃく、トン！'),
+                      dict(parts=[dict(text='パンチのいりょくは、'), dict(text='やく、せんよんひゃく、トン！', style=S_SU)],
+                           gaps=[0.10]),
+                      dict(parts=[dict(text='パンチのいりょくは、'), dict(text='やく、'),
+                                  dict(text='せんよんひゃく、トン！', style=S_SU)], gaps=[0.08, 0.06]),
+                      dict(parts=[dict(text='パンチのいりょくは、', style=S_M), dict(text='やく！せんよんひゃくトン！')],
+                           gaps=[0.10])],
                styles=[S_SU, S_SH, S_M, S_H], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.12]),
     '05': dict(aim='数字を言い切る（ゾウ250頭分）',
                texts=[dict(text='ゾウ、にひゃくごじゅっとうぶん！'), dict(text='象、にひゃくごじゅっとうぶん！'),
@@ -122,6 +156,12 @@ SHAPE = {
 }
 # 行の音量の手直し（dB、ピークはリミッターで抑える）。06「マッハ6.7」だけ他の数字の行より 3〜4 dB 小さかった（-17.1 LUFS）
 LEVEL = {'06': 2.0}
+
+
+def dur_ok(k, e):
+    if k in TARGET:
+        return TARGET[k][0] <= e['tdur'] <= TARGET[k][1]
+    return DUR_LO <= e['rel'] <= DUR_HI
 
 
 def cfg_for(k, t, st, it, tp, sp):
@@ -236,7 +276,7 @@ def make(k, name, pl, hst, res, threads, whisper_all=False, whisper=True):
     rel = d / OLD_DUR[k]
     m = vm.liveliness(path)
     ent = dict(settings=rpl, tdur=d, rel=round(rel, 3), **{'m_' + kk: v for kk, v in m.items()})
-    if whisper and (whisper_all or DUR_LO <= rel <= DUR_HI):
+    if whisper and (whisper_all or dur_ok(k, ent)):
         verify_one(k, name, ent, threads)
     res.setdefault(k, {})[name] = ent
     print(f'{k} {name:34s} {d:5.2f}s ({rel:4.2f}) f0r {m.get("f0_range", 0):5.2f} f0sd {m.get("f0_sd", 0):4.2f} '
@@ -255,7 +295,7 @@ def verify(lines, top, threads):
     res = load_res()
     for k in lines or list(PLAN):
         vs = sorted(((n, e) for n, e in res.get(k, {}).items()
-                     if DUR_LO <= e['rel'] <= DUR_HI and f0_ok(k, e)),
+                     if dur_ok(k, e) and f0_ok(k, e)),
                     key=lambda kv: -lively(kv[1]))
         good = sum(1 for _, e in vs if ok(e, k))
         for n, e in vs:
@@ -272,7 +312,7 @@ def verify(lines, top, threads):
 def takes(a):
     os.makedirs(TAKES, exist_ok=True)
     res = load_res()
-    keys = a.lines.split(',') if a.lines else list(PLAN)
+    keys = a.lines.split(',') if a.lines else (list(FIX5) if TAKES.endswith('C_fix5') else list(PLAN))
     for k in keys:
         P = PLAN[k]
         for (ti, t), st, it, tp, sp, sd in itertools.product(enumerate(P['texts']), P['styles'], P['intons'],
@@ -337,13 +377,13 @@ def f0_ok(k, e):
 
 
 def ok(e, k):
-    return (e.get('must_ok') and (e.get('ratio') or 0) >= 0.75 and DUR_LO <= e['rel'] <= DUR_HI and f0_ok(k, e))
+    return (e.get('must_ok') and (e.get('ratio') or 0) >= 0.75 and dur_ok(k, e) and f0_ok(k, e))
 
 
 def rank(lines, top):
     res = load_res()
     flat = vm.table([FLAT])[FLAT]
-    for k in lines or list(PLAN):
+    for k in lines or (list(FIX5) if TAKES.endswith('C_fix5') else list(PLAN)):
         vs = sorted(((n, e) for n, e in res.get(k, {}).items() if ok(e, k)), key=lambda kv: -lively(kv[1]))
         f = flat[k]
         print(f'{k} {PLAN[k]["aim"]}  flat: f0r {f["f0_range"]:5.2f} f0sd {f["f0_sd"]:4.2f} ensd {f["en_sd"]:5.2f} '
@@ -353,13 +393,23 @@ def rank(lines, top):
                   f'ensd {e["m_en_sd"]:5.2f} med {e["m_f0_med"]:5.1f} creak {e.get("m_creak", 0):4.2f} score {lively(e):4.2f} r {e["ratio"]} {e["text"]}')
 
 
-def collect(picks):
+def collect(picks, partial=False):
+    """partial=True：picks の行だけ vo_C/ を差し替える（前の wav と json は _prev_fix5/ に退避）。他の行の json は残す"""
+    import shutil
     res = load_res()
     missing = [k for k in LINES if k not in picks]
-    if missing:
+    if missing and not partial:
         raise SystemExit('pick every line: missing ' + ','.join(missing))
+    keys = [k for k in LINES if k in picks]
+    if partial:
+        os.makedirs(PREV5, exist_ok=True)
+        for f in [k + '.wav' for k in keys] + ['durations.json', 'lines.json', 'reading.json', 'candidate.json',
+                                                'moras.json', 'moras_ctc_raw.json']:
+            src, dst = os.path.join(OUT, f), os.path.join(PREV5, f)
+            if os.path.exists(src) and not os.path.exists(dst):      # 2回目以降は最初の退避を残す
+                shutil.copy2(src, dst)
     durs, chosen, rd = {}, {}, {}
-    for k in LINES:
+    for k in keys:
         e = res[k][picks[k]]
         dst = os.path.join(OUT, k + '.wav')
         durs[k] = vo_c.trim(os.path.join(TAKES, k, picks[k] + '.wav'), dst)
@@ -373,10 +423,13 @@ def collect(picks):
         st = e['settings']
         rd[k] = dict(text=text_of(st), moras=vo_c.reading(st))
         chosen[k] = dict(take=picks[k], aim=PLAN[k]['aim'], dur_trimmed=durs[k], dur_flat=OLD_DUR[k],
+                         takes_dir=os.path.relpath(TAKES, ROOT),
                          whisper=e['text'], reading_ratio=e['ratio'], must_ok=e['must_ok'], whisper_p=e['p'],
                          settings=st, prosody=shp, liveliness=vm.liveliness(dst),
                          n_takes=len(res[k]))
         print(f'{k} {picks[k]:34s} {durs[k]:5.2f}s (flat {OLD_DUR[k]:4.2f}) {SHAPE.get(k)}')
+    if partial:
+        return collect_merge(durs, rd, chosen)
     json.dump(durs, open(os.path.join(OUT, 'durations.json'), 'w'))
     json.dump(LINES, open(os.path.join(OUT, 'lines.json'), 'w'), ensure_ascii=False, indent=0)
     json.dump(rd, open(os.path.join(OUT, 'reading.json'), 'w'), ensure_ascii=False, indent=1)
@@ -390,6 +443,41 @@ def collect(picks):
         lines=chosen, total_sec=round(sum(durs.values()), 2), total_flat=round(sum(OLD_DUR.values()), 2))
     json.dump(meta, open(os.path.join(OUT, 'candidate.json'), 'w'), ensure_ascii=False, indent=1)
     print('total %.2fs (flat %.2fs)' % (sum(durs.values()), sum(OLD_DUR.values())))
+
+
+def collect_merge(durs, rd, chosen):
+    """修正5：差し替えた行だけ json を更新（他の行と candidate.json の他の項目は残す）"""
+    def upd(name, new, indent=None):
+        p = os.path.join(OUT, name)
+        d = json.load(open(p)) if os.path.exists(p) else {}
+        d.update(new)
+        d = {k: d[k] for k in sorted(d)}
+        json.dump(d, open(p, 'w'), ensure_ascii=False, indent=indent)
+        return d
+    allr = upd('durations.json', durs)
+    upd('lines.json', {k: LINES[k] for k in LINES}, indent=0)
+    upd('reading.json', rd, indent=1)
+    p = os.path.join(OUT, 'candidate.json')
+    meta = json.load(open(p))
+    old = {k: meta['lines'][k] for k in chosen if k in meta['lines']}
+    meta['lines'].update(chosen)
+    meta['lines'] = {k: meta['lines'][k] for k in sorted(meta['lines'])}
+    meta['total_sec'] = round(sum(allr.values()), 2)
+    meta['note_fix5'] = ('2026-11-08 修正5：01「アニメなら、悪役は、パンチ一発で、空のかなたへ。」（ゆっくり・キラーンは効果音のみ）、'
+                         '03「でも、現実だと……こうなる。」、04「パンチの威力は、約1,400トン！」を作り直し。前の版は _prev_fix5/')
+    pv = meta.setdefault('prev_fix5', {})          # 最初に退避した版だけを記録（作り直しの途中の版で上書きしない）
+    for k, v in old.items():
+        pv.setdefault(k, dict(take=v.get('take'), dur_trimmed=v.get('dur_trimmed'), text=LINES_PREV5.get(k)))
+    if 'metrics_flat_vs_new' in meta:      # 抑揚の数値の表も新しい行に合わせる（old は平らな版なので文が違う：参考）
+        for k in chosen:
+            meta['metrics_flat_vs_new'].setdefault(k, {})['new'] = chosen[k]['liveliness']
+            meta['metrics_flat_vs_new'][k].update(whisper=chosen[k]['whisper'], must_ok=chosen[k]['must_ok'],
+                                                  ratio=chosen[k]['reading_ratio'], text_changed_fix5=True)
+    json.dump(meta, open(p, 'w'), ensure_ascii=False, indent=1)
+    print('total %.2fs' % meta['total_sec'])
+
+
+LINES_PREV5 = {'01': 'アニメなら、キラーン。', '03': '現実だと、こうなる。', '04': '約1,400トン。'}
 
 
 def ab():
@@ -415,9 +503,10 @@ def main():
         ap.add_argument('picks', nargs='*')
         ap.add_argument('--seeds', type=int, default=4)
         ap.add_argument('--threads', type=int, default=2)
-        a = ap.parse_args()
+        ap.add_argument('--partial', action='store_true')
+        a = ap.parse_intermixed_args()
         pairs = [tuple(x.split('=', 1)) for x in a.picks]
-        collect(dict(pairs)) if cmd == 'collect' else more(pairs, a.seeds, a.threads)
+        collect(dict(pairs), a.partial) if cmd == 'collect' else more(pairs, a.seeds, a.threads)
         return
     if cmd == 'ab':
         ab()
