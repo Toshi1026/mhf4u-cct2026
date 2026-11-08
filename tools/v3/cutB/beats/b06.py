@@ -302,14 +302,26 @@ def render(beat, ctx):
         f = warp(f, Mc)
         f = R.finish_ad(f, 475 + i, grain=0.005, vignette=0.10)
         st, _fl = fuji_state(i, T)
-        f = put_labels(f, i, T, Mc, fuji_a=M.ease((i - T['ru'] - 9) / 6.0, 'sine_inout') if st > 0 else 0.0,
-                       apex_a=M.ease((i - T['ru'] + 1) / 6.0, 'sine_inout'))
-        # 文字
-        f = put_counter(f, i, T)
-        f = t_sub.reveal(f, i, T['ru'] + 4, 'char_rise', stagger=0.8, dur=10)
-        # 入り：05 の上への whip を受ける
+
+        def hud(g, i=i, st=st):
+            g = put_labels(g, i, T, Mc, fuji_a=M.ease((i - T['ru'] - 9) / 6.0, 'sine_inout') if st > 0 else 0.0,
+                           apex_a=M.ease((i - T['ru'] + 1) / 6.0, 'sine_inout'))
+            g = put_counter(g, i, T)
+            return t_sub.reveal(g, i, T['ru'] + 4, 'char_rise', stagger=0.8, dur=10)
         if i < WHIP_IN:
-            f = M.whip(f, i / float(WHIP_IN), axis=0, sign=-1, px=300.0, blur=110.0, direction='in')
+            # 入り：05 の上への whip を受ける。ラベル・文字はぶらさず、同じずれで上がりながら出る（美術監督の規則）
+            q = i / float(WHIP_IN)
+            f = M.whip(f, q, axis=0, sign=-1, px=300.0, blur=110.0, direction='in')
+            t0 = hud(np.zeros_like(f))
+            ta = np.clip(1 - (hud(np.ones_like(f)) - t0), 0, 1)
+            e = M.ease(q, 'expo_out')
+            Md = np.float32([[1, 0, 0], [0, 1, 300.0 * (1 - e)]])
+            ta = cv2.warpAffine(ta, Md, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            t0 = cv2.warpAffine(t0, Md, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            k_ = e ** 2
+            f = f * (1 - ta * k_) + t0 * k_
+        else:
+            f = hud(f)
         if i < ENTRY:
             q = i / float(ENTRY)
             f = f * (ENTRY_DIM + (1 - ENTRY_DIM) * (0.5 * q + 0.5 * core.ease(q, 'smooth')))

@@ -127,17 +127,19 @@ def render(beat, ctx):
         k_ = S.push_k(gi, gi_end)
         f = BE.screen_post(f)
         f = R.finish_ad(f, gi, grain=0.005, vignette=0.10, ca_px=0.25)
-        # 文字：01 の文字が抜けて、問いの文字
-        f = old1.exit(f, i, -1, dur=6)
-        f = old2.exit(f, i, -1, dur=6)
-        f = q1.reveal(f, i, f_q1 - 1, 'line_mask', exit=TXT_OUT)
-        f = put_q2(f, i, f_ho - 2, TXT_OUT + 1)
-        # 最後：DOT へのズームスルー（03 が同じ点で受ける）＋ NAVY へ暗く
+        # 最後：DOT へのズームスルー（03 が同じ点で受ける）。文字はズームのぼかしの後に重ねる（文字はぶらさない）
         j = i - zt0
         if j >= 0:
             q = (j + 1) / float(n - zt0)
             k0 = S.push_k(gi, gi_end)
             f = M.zoom_through(f, q, S.DOT, 'out', s_out=(1.0, ZT_END / k0), blur=ZT_BLUR, steps=14)
+        # 文字：01 の文字が抜けて、問いの文字
+        f = old1.exit(f, i, -1, dur=6)
+        f = old2.exit(f, i, -1, dur=6)
+        f = q1.reveal(f, i, f_q1 - 1, 'line_mask', exit=TXT_OUT)
+        f = put_q2(f, i, f_ho - 2, TXT_OUT + 1)
+        # NAVY へ暗く（文字ごと）
+        if j >= 0:
             d = DARK * q                       # 2026-11-08：まっすぐ（1 フレームの明るさの差 ≤0.055、03 の最初と ≤0.01）
             f = f * (1 - d) + core.NAVY * d
         yield np.clip(f, 0, 1).astype(np.float32)

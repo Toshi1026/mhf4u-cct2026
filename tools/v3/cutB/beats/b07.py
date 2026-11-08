@@ -32,6 +32,7 @@ import math
 LAND_AFTER_GO = 3                             # 着水（＝45秒）はナレーションの「ヨンジュウゴ」のゴの 3 フレーム後
 SECS = 45.4                                   # 飛んでいる時間（試算）。表示は 23 → 45
 DARKEN = 11                                   # 濃紺へ暗くするのは最後の 11 フレーム（1フレームの明るさの差を小さく）
+DARK_MAX = 0.83                               # 2026-11-08：T の新しい最初のフレーム（立体の地図、平均 約0.16）と明るさをそろえる（全部濃紺にすると 0.09 で段差 0.07）
 
 
 class SecCounter:
@@ -310,7 +311,7 @@ def render(beat, ctx):
         # 最後：濃紺へ＋線画をうすく
         if jd >= 0:
             qd = (jd + 1) / DARKEN
-            d = 0.6 * qd + 0.4 * core.ease(qd, 'smooth')
+            d = (0.6 * qd + 0.4 * core.ease(qd, 'smooth')) * DARK_MAX
             f = f * (1 - d) + nav * d
         if j >= 0:
             la = (0.14 * core.ease(q, 'in') * lines)[..., None]

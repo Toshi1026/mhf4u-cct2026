@@ -275,6 +275,8 @@ def render(beat, ctx):
         sh = M.shake(i, f_n, amp=4.0, tau=2.0, rot_deg=0.0, seed=5)
         cx, cy = W / 2, 800.0
         Mw = np.float32([[k, 0, cx * (1 - k) + sh[0]], [0, k, cy * (1 - k) + sh[1]]])
+        # 文字は揺れを ±2px までに抑える（美術監督の規則：文字は ±2px より揺らさない）
+        Mt = np.float32([[k, 0, cx * (1 - k) + 0.5 * sh[0]], [0, k, cy * (1 - k) + 0.5 * sh[1]]])
         f = cv2.warpAffine(f, Mw, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
         f = R.finish_ad(f, 380 + i, grain=0.006, vignette=0.10)
         # 文字（仕上げの後。同じ押し込みを掛ける：黒の上と白の上の 2 枚から色とアルファを取り出す）
@@ -293,16 +295,25 @@ def render(beat, ctx):
                 g = sub.put(g, cnt(i), ac, i=i, f_lock=f_go, dv=cnt(i + 0.5) - cnt(i - 0.5))
             if i >= f_zo + 6:
                 g = note1.reveal(g, i, f_zo + 6, 'line_mask')
-            outs.append(cv2.warpAffine(g, Mw, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE))
+            outs.append(cv2.warpAffine(g, Mt, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE))
         ta = np.clip(1 - (outs[1] - outs[0]), 0, 1)
-        f = f * (1 - ta) + outs[0]
-        # 入り：ズームのぼかしを 0 へ（04 のメーターの中心から）
+        # 入り：ズームのぼかしを 0 へ（04 のメーターの中心から）。文字はぼかさない（ぼかしの後に重ねる）
         if i < 6:
             f = core.zoom_blur(f, 0.12 * (1 - i / 6.0) ** 2, cx=540, cy=900, steps=14)
-        # 出：上へ振る whip（06 が同じ速さで受ける）
+        # 出：上へ振る whip（06 が同じ速さで受ける）。文字は同じずれで上へ動きながら消える（ぶれはかけない）
         j = i - (n - WHIP_OUT)
         if j >= 0:
-            f = M.whip(f, (j + 1) / WHIP_OUT, axis=0, sign=-1, px=WHIP_PX, blur=WHIP_BLUR, direction='out')
+            q = (j + 1) / WHIP_OUT
+            f = M.whip(f, q, axis=0, sign=-1, px=WHIP_PX, blur=WHIP_BLUR, direction='out')
+            e = M.ease(q, 'expo_in')
+            Md = np.float32([[1, 0, 0], [0, 1, -WHIP_PX * e]])
+            ta = cv2.warpAffine(ta, Md, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            t0 = cv2.warpAffine(outs[0], Md, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            k_ = (1 - e) ** 2
+            ta, t0 = ta * k_, t0 * k_
+        else:
+            t0 = outs[0]
+        f = f * (1 - ta) + t0
         yield np.clip(f, 0, 1).astype(np.float32)
 
 

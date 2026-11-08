@@ -147,7 +147,7 @@ def _b11_frame(i, S):
     lm = np.clip(np.maximum(m, c), 0, 1)[..., None]
     f = bg * (1 - lm) + core.FOAM * lm
     lr = r[..., None]
-    f = f * (1 - lr) + core.ACC * lr
+    f = f * (1 - lr) + RIVER * lr      # 2026-11-08 最終確認：川は CG の要素なので強調色 ACC ではなく #6FB8E8（最後のフレームには川は写らないので b11 と同じまま）
     return f, dict(m=m, c=c, r=r, cam=cam, bg=bg)
 
 
@@ -194,10 +194,28 @@ def _paste_shadowed(f, rgba, x0, y0, sh_a=0.30):
         sub = f[fy0:fy1, fx0:fx1]
         k = sh[fy0 - Y0:fy1 - Y0, fx0 - X0:fx1 - X0][..., None] * sh_a
         sub *= 1 - k * (1 - np.asarray(core.c('1B3550'), np.float32))
-    # 粒は真っ白にせず、わずかに青い白（上が明るい）
-    yy = np.linspace(0, 1, h, dtype=np.float32)[:, None, None]
-    col = rgba[..., :3] * (1.0 - 0.10 * yy) * np.asarray(core.c('EEF6FC'), np.float32) / np.asarray(core.FOAM, np.float32)
-    return U.paste(f, np.concatenate([col, rgba[..., 3:4]], -1), x0, y0)
+    return U.paste(f, _lit_water(rgba), x0, y0)
+
+
+_KEY = np.array([-0.55, -0.65, 0.52], np.float32) / np.linalg.norm([-0.55, -0.65, 0.52])   # 共通の太陽（左上）
+_LIT, _SHD = np.asarray(core.c('E6F1F9'), np.float32), np.asarray(core.c('6F98BC'), np.float32)
+
+
+def _lit_water(rgba):
+    """白い平らな粒の板 → 光の当たった水の粒（2026-11-08 仕上げ：07 のしぶきと同じ、左上の太陽で陰影・小さなハイライト・
+    縁はやや透ける）。アルファから高さを作って法線にする（1 回の板ごと、数 ms）。"""
+    a = np.ascontiguousarray(rgba[..., 3], np.float32)
+    hgt = cv2.GaussianBlur(a, (0, 0), 1.3)
+    gy, gx = np.gradient(hgt)
+    nx, ny, nz = -gx * 3.0, -gy * 3.0, np.full_like(a, 0.35)
+    nn = np.sqrt(nx * nx + ny * ny + nz * nz) + 1e-6
+    ndl = (nx * _KEY[0] + ny * _KEY[1] + nz * _KEY[2]) / nn
+    lam = np.clip(0.5 + 0.5 * ndl, 0, 1)[..., None]
+    col = _SHD + (_LIT - _SHD) * lam ** 0.8
+    spec = np.clip(ndl, 0, 1) ** 24 * 0.25                      # 小さなハイライト（白は 0.92 まで）
+    col = np.minimum(col + spec[..., None], 0.92)
+    ae = a * (0.80 + 0.20 * np.clip(hgt * 1.4, 0, 1))           # 縁は少し透ける
+    return np.concatenate([col, ae[..., None]], -1).astype(np.float32)          # U.paste はまっすぐの色＋アルファ
 
 
 def render(beat, ctx):
