@@ -9,7 +9,7 @@ from core import W, H, WL
 from beats import _mapui as U
 from cutB.beats import _art as A
 
-X0, X1 = 150.0, 980.0                # 桂浜（打ち出し）→ 着水
+X0, X1 = 150.0, 885.0                # 桂浜（打ち出し）→ 着水（2026-11-08 r2：横を約 11% 詰め、着水を右端・IG の UI から離す。旧 980）
 PXM = 550.0 / 3776                   # 縦：1m あたりの px（富士山の頂上が y=600）
 HAPEX = 2525 * PXM                   # 試算の最高点（表示は「約2,500m」）
 FUJI_X = 752.0                       # 頂点（x≈565）と重ならないよう右へ（2026-11-07：頂点が低くなったため 700→752、すそも少し細く）
@@ -29,6 +29,10 @@ APEX = (float(arc(0.5)[0]), float(arc(0.5)[1]))
 
 
 SHORE_X = 205.0
+LAB_DY = 10.0                        # 28px の数字を線のまんなかに置くベースラインのずれ
+APEX_DY = 11.0                       # 30px の「2,500m」
+GRID_X1 = 1010.0 - 99.0 - 14.0       # 目盛り線・2,500m の線の右の端（数字の 14px 手前）
+APEX_X1 = 1010.0 - 110.0 - 14.0
 
 
 def seabed_y(x):
@@ -95,12 +99,15 @@ def background():
 def labels():
     if 'lab' in _C:
         return _C['lab']
-    lab = U.Patch([dict(text='1,000m', x=1010, y=y_of(1000) - 10, size=28, weight='Medium', anchor='rs', alpha=0.7),
-                   dict(text='2,000m', x=1010, y=y_of(2000) - 10, size=28, weight='Medium', anchor='rs', alpha=0.7)])
+    # 2026-11-08 r2：目盛りの数字は線の高さのまんなかに（ベースライン＝線＋0.36·文字の大きさ）。線は数字の手前で止める（GRID_X1）
+    lab = U.Patch([dict(text='1,000m', x=1010, y=y_of(1000) + LAB_DY, size=28, weight='Medium', anchor='rs', alpha=0.7),
+                   dict(text='2,000m', x=1010, y=y_of(2000) + LAB_DY, size=28, weight='Medium', anchor='rs', alpha=0.7)])
     kat = U.Patch([dict(text='桂浜', x=X0 - 10, y=WL + 62, size=32, weight='Medium', track=0.1)])
     fuji = U.Patch([dict(text='富士山 3,776m', x=FUJI_X, y=y_of(3776) - 22, size=28, weight='Medium', alpha=0.85)])
-    apex = U.Patch([dict(text='2,500m', x=1010, y=APEX[1] - 12, size=30, weight='Bold', anchor='rs')])
-    _C['lab'] = dict(grid=lab, kat=kat, fuji=fuji, apex=apex)
+    apex = U.Patch([dict(text='2,500m', x=1010, y=APEX[1] + APEX_DY, size=30, weight='Bold', anchor='rs')])
+    g1 = U.Patch([dict(text='1,000m', x=1010, y=y_of(1000) + LAB_DY, size=28, weight='Medium', anchor='rs', alpha=0.7)])
+    g2 = U.Patch([dict(text='2,000m', x=1010, y=y_of(2000) + LAB_DY, size=28, weight='Medium', anchor='rs', alpha=0.7)])
+    _C['lab'] = dict(grid=lab, kat=kat, fuji=fuji, apex=apex, g1=g1, g2=g2)   # g1・g2：1 本ずつ自分の線に付ける（r2）
     return _C['lab']
 
 
@@ -162,10 +169,12 @@ def fuji_layer2(stroke, fill):
     return r
 
 
-def trail_layer(u, alpha=1.0, ghost=0.0):
-    """放物線：通ったところは白い実線、この先はうすい点線（ghost）。(rgba, x0, y0)。"""
+def trail_layer(u, alpha=1.0, ghost=0.0, ss=2, fade=None):
+    """放物線：通ったところは白い実線、この先はうすい点線（ghost）。(rgba, x0, y0)。
+    ss：線を描く倍率（2026-11-08 r2：07 は 4）。fade=(a0, k)：実線を 1 本の線のまま、長さに沿った α のグラデーションに
+    （打ち出し側 a0 → いまの位置 1、k はべき）。x が u と一緒に増えるので x の関数として掛ける。"""
     y0 = int(APEX[1]) - 12
-    L = core.SS(s=2, w=W, h=int(WL) + 6 - y0)
+    L = core.SS(s=ss, w=W, h=int(WL) + 6 - y0)
     if ghost > 0:
         us = np.linspace(u, 1, 120)
         x, y = arc(us)
@@ -173,7 +182,23 @@ def trail_layer(u, alpha=1.0, ghost=0.0):
     if u > 0.002:
         us = np.linspace(0, u, max(4, int(u * 200)))
         x, y = arc(us)
-        L.draw.line(L.p(list(zip(x, y - y0))), fill=L.col(core.FOAM, 0.85 * alpha), width=L.w(3.0), joint='curve')
+        if fade is None:
+            L.draw.line(L.p(list(zip(x, y - y0))), fill=L.col(core.FOAM, 0.85 * alpha), width=L.w(3.0),
+                        joint='curve')
+        else:
+            L2 = core.SS(s=ss, w=W, h=int(WL) + 6 - y0)
+            L2.draw.line(L2.p(list(zip(x, y - y0))), fill=L2.col(core.FOAM, 1.0), width=L2.w(3.0), joint='curve')
+            lay = L2.done()
+            xe = float(arc(u)[0])
+            q = np.clip((np.arange(W, dtype=np.float32) + 0.5 - X0) / max(xe - X0, 1.0), 0, 1)
+            g = (fade[0] + (1 - fade[0]) * q ** fade[1]) * 0.85 * alpha
+            lay[..., 3] *= g[None, :]
+            out = L.done()
+            a2 = lay[..., 3:4]
+            out[..., :3] = out[..., :3] * out[..., 3:4] * (1 - a2) + lay[..., :3] * a2
+            out[..., 3:4] = out[..., 3:4] + a2 * (1 - out[..., 3:4])
+            out[..., :3] = out[..., :3] / np.maximum(out[..., 3:4], 1e-5)
+            return out, 0, y0
     return L.done(), 0, y0
 
 

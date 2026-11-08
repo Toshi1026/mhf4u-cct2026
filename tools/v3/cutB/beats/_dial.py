@@ -113,11 +113,18 @@ class Dial:
         lim = R.lin(np.float32(0.80))
         l = R.luma(metal)
         metal = metal * np.minimum(1.0, lim / np.maximum(l, 1e-5))[..., None]
-        # ---- ガラスの映り込み：左上の 4 分の 1 だけ、ドームに沿った弧のやわらかい帯
-        rg = Rr * 0.80
-        band = np.exp(-((r - rg) / 16.0) ** 2) * R.smoothstep(np.pi * 0.50, np.pi * 0.70, ang) * \
-            (1 - R.smoothstep(np.pi * 0.84, np.pi * 0.96, ang)) * (dy < 0)
-        self.glass = cv2.resize((band * 0.07 * fm).astype(np.float32), (self.w, self.h), interpolation=cv2.INTER_AREA)
+        # ---- ガラスの映り込み（2026-11-08 美術監督のレビュー：やわらかい帯は汚れに見えたので、縁の弧に沿った
+        #      くっきりした 2 本の反射＋上の縁のフレネルの線に）。帯 1：1.5px・8%、帯 2：6px・3%（左上の弧）
+        def arc_band(rc, wpx, a0, a1, fade):
+            prof = np.clip(wpx / 2.0 - np.abs(r - rc) + 0.5, 0, 1)            # くっきりした縁（1px の AA）
+            angw = R.smoothstep(a0, a0 + fade, ang) * (1 - R.smoothstep(a1 - fade, a1, ang))
+            return prof * angw * (dy < 0)
+        b1 = arc_band(Rr * 0.88, 1.5, np.pi * 0.56, np.pi * 0.86, np.pi * 0.08)
+        b2 = arc_band(Rr * 0.83, 6.0, np.pi * 0.60, np.pi * 0.80, np.pi * 0.07)
+        fres = np.clip(0.9 - np.abs(r - (Rf - 4.5)) + 0.5, 0, 1) * R.smoothstep(np.pi * 0.08, np.pi * 0.30, ang) * \
+            (1 - R.smoothstep(np.pi * 0.70, np.pi * 0.92, ang)) * (dy < 0)
+        self.glass = cv2.resize(((0.08 * b1 + 0.03 * b2 + 0.05 * fres) * fm).astype(np.float32), (self.w, self.h),
+                                interpolation=cv2.INTER_AREA)
         # ---- 計器の下の影（地図から浮かせる）
         sh = cv2.GaussianBlur(np.clip((Rc + hw - r) * 1.0, 0, 1) * cut, (0, 0), 18 * s)
         sh = cv2.warpAffine(sh.astype(np.float32), np.float32([[1, 0, 10 * s], [0, 1, 16 * s]]), (sh.shape[1], sh.shape[0]))
@@ -172,9 +179,51 @@ class Dial:
             self._tick_cache = (key, out)
         return out
 
+    # ------------------------------------------------------------ 針のぶれ・旅客機の形
+    def _smear(self, col, a, smear, cs):
+        """針が v_from → v_to へ動いた半フレームの間を、1 枚のくさびで（針の所 0.6 → 後ろ 0）。"""
+        v0, v1 = smear
+        t0, t1 = self.th(v0), self.th(v1)
+        span = t0 - t1
+        if abs(span) < 1e-4:
+            return col, a
+        dy, r, ang = self._dy, self._r, self._ang
+        q = (ang - t1) / span                                      # 0＝今の針、1＝半フレーム前
+        rn = (self.R - 44) * cs
+        rad = np.clip(rn - r + 0.5, 0, 1) * R.smoothstep(14.0, 30.0, r)
+        w = np.clip(1 - q, 0, 1) ** 1.8 * (1 - R.smoothstep(0.0, 0.03, -q))
+        m = (0.6 * w * rad * (dy <= 0.5) * self.face_a).astype(np.float32)
+        nc = R.hexl('BCCFDE')
+        col = col * (1 - m[..., None]) + nc * m[..., None]
+        return col, np.maximum(a, m)
+
+    def _jet_glyph(self, col, a, jet, jet_len, jet_a, jet_p):
+        """旅客機の目盛り（外へのびる線）の先に、真上から見た小さな旅客機の形（約 30px、機首は値が増える向き＝時計回り）。"""
+        t_ = self.th(jet)
+        ux, uy = math.cos(t_), -math.sin(t_)                     # 外向き
+        tx, ty = -uy, ux                                         # 時計回り（値が増える向き）
+        rr = self.R + 24 + jet_len * jet_p + 20
+        cx, cy = self.cx - self.x0 + rr * ux, self.cy - self.y0 + rr * uy
+        s_ = 15.0 * min(1.0, jet_p * 1.2)
+        # 機体の形（機首 +x、右 +y の単位）：胴体・後退翼・水平尾翼
+        half = [(1.00, 0.00), (0.80, 0.10), (0.18, 0.12), (-0.18, 0.88), (-0.34, 0.88), (-0.14, 0.12), (-0.66, 0.10),
+                (-0.86, 0.38), (-0.98, 0.38), (-0.90, 0.00)]
+        pts = half + [(x, -y) for x, y in half[-2:0:-1]]
+        pts = [(cx + s_ * (x * tx + y * ux), cy + s_ * (x * ty + y * uy)) for x, y in pts]
+        L = core.SS(s=3, w=self.w, h=self.h)
+        L.draw.polygon(L.p(pts), fill=(255, 255, 255, 255))
+        m = L.done()[..., 3] * (jet_a * min(1.0, jet_p * 1.6) * 0.9)
+        sh = cv2.GaussianBlur(cv2.warpAffine(m, np.float32([[1, 0, 2], [0, 1, 3]]), (self.w, self.h)), (0, 0), 1.5) * 0.35
+        col = col * (1 - sh[..., None])
+        a = np.maximum(a, sh)
+        c = R.lin(np.asarray(core.FOAM, np.float32)) * 0.80
+        col = col * (1 - m[..., None]) + c * m[..., None]
+        return col, np.maximum(a, m)
+
     # ------------------------------------------------------------ 1 フレーム
     def frame(self, value, ap=1.0, prog=(), cs=1.0, ghosts=(), excess=0.0, jet=900.0, jet_len=34.0, jet_a=1.0,
-              jet_p=1.0):
+              jet_p=1.0, smear=None, jet_glyph=False):
+        # smear：(v_from, v_to) 針の動きのぶれ（1 枚のくさび、針の所 0.6 → 後ろ 0）。jet_glyph：旅客機の目盛りの先に旅客機の形
         """ap：半円の描かれた割合（0..1、左から）。prog：目盛りの (v, p)。cs：針とキャップの大きさ（back_out）。"""
         Rr = self.R
         dx, dy, r, ang = self._dx, self._dy, self._r, self._ang
@@ -220,6 +269,10 @@ class Dial:
         a = np.maximum(a, np.maximum(tm, td * 0.55))
         # 針（影 → 本体 2 色）・軸のキャップ
         cx, cy = self.cx - self.x0, self.cy - self.y0
+        if smear is not None and cs > 0.01:
+            col, a = self._smear(col, a, smear, cs)
+        if jet_glyph and jet_p > 0.01:
+            col, a = self._jet_glyph(col, a, jet, jet_len, jet_a, jet_p)
         if cs > 0.01:
             for gv, ga in list(ghosts) + [(value, 1.0)]:
                 t_ = self.th(gv)

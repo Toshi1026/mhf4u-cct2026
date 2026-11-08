@@ -15,6 +15,7 @@ API
     .ellipsoid(c, (rx, ry, rz), k=0, mat=0)
     .rbox(c, (hx, hy, hz), r, k=0, mat=0)     角の丸い箱
     .cyl(a, b, r, rr=0, k=0, mat=0)            角の丸い円柱（袖口・リブ）
+    .obox(c, (hx, hy, hz), r, Rm, k=0, mat=0)  向きのある角の丸い箱（Rm：3×3 回転。2026-11-08 拳の指の骨）
     .slab(poly, z, half, r, k=0, mat=0, fold=(amp, period, phase, dirx, diry), bend=0)
                                               多角形を押し出した板（布・耳）。fold：板の z を sin で波打たせる。
                                               bend：板の中心からの距離²で z を反らせる（耳の反り）
@@ -32,7 +33,8 @@ import cv2
 
 import core
 
-T_CONE, T_ELL, T_SLAB, T_RBOX, T_CYL = 0, 1, 2, 3, 4
+T_CONE, T_ELL, T_SLAB, T_RBOX, T_CYL, T_OBOX = 0, 1, 2, 3, 4, 5
+NCOL = 31                                            # 行の列数（22–30：向きのある箱の回転 3×3）
 
 
 @nb.njit(fastmath=True, cache=True)
@@ -99,8 +101,16 @@ def _prim(P, i, x, y, z, V):
         dh = abs(h) - (L * 0.5 - rr)
         ox, oz = max(dr, 0.0), max(dh, 0.0)
         return math.sqrt(ox * ox + oz * oz) + min(max(dr, dh), 0.0) - rr
-    # rounded box
+    # rounded box（t==5 は向きのある箱：ローカル＝R^T (p − c)、R は列 22–30）
     cx, cy, cz, hx, hy, hz, r = P[i, 1], P[i, 2], P[i, 3], P[i, 4], P[i, 5], P[i, 6], P[i, 7]
+    if t == 5:
+        px, py, pz = x - cx, y - cy, z - cz
+        lx = P[i, 22] * px + P[i, 25] * py + P[i, 28] * pz
+        ly = P[i, 23] * px + P[i, 26] * py + P[i, 29] * pz
+        lz = P[i, 24] * px + P[i, 27] * py + P[i, 30] * pz
+        qx, qy, qz = abs(lx) - hx + r, abs(ly) - hy + r, abs(lz) - hz + r
+        ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
+        return math.sqrt(ox * ox + oy * oy + oz * oz) + min(max(qx, max(qy, qz)), 0.0) - r
     qx, qy, qz = abs(x - cx) - hx + r, abs(y - cy) - hy + r, abs(z - cz) - hz + r
     ox, oy, oz = max(qx, 0.0), max(qy, 0.0), max(qz, 0.0)
     return math.sqrt(ox * ox + oy * oy + oz * oz) + min(max(qx, max(qy, qz)), 0.0) - r
@@ -284,7 +294,7 @@ class Scene:
         self.V = []
 
     def _add(self, row, bound, k, mat, op):
-        r = np.zeros(22)
+        r = np.zeros(NCOL)
         r[:len(row)] = row
         r[9], r[10], r[11] = k, mat, 1.0 if op == 'sub' else 0.0
         r[18:22] = bound[0], bound[1], bound[2], bound[3] + k
@@ -322,15 +332,22 @@ class Scene:
         row[:9] = [T_SLAB, o, len(poly), z, half, r, amp, per, ph]
         row[13:18] = [fx, fy, bend, c[0], c[1]]
         zb = abs(amp) + abs(bend) * rad * rad
-        r_ = np.zeros(22)
+        r_ = np.zeros(NCOL)
         r_[:18] = row
         r_[9], r_[10], r_[11] = k, mat, 1.0 if op == 'sub' else 0.0
         r_[18:22] = c[0], c[1], z, math.hypot(rad, half + zb) + k
         self.P.append(r_)
         return self
 
+    def obox(self, c, hh, r, Rm=None, k=0.0, mat=0, op='add'):
+        """向きのある角の丸い箱。Rm：3×3（箱のローカルの軸 → シーンの向き。列が軸）。None なら rbox と同じ。"""
+        Rm = np.eye(3) if Rm is None else np.asarray(Rm, float)
+        self._add([T_OBOX, *c, *hh, r], (*c, float(np.linalg.norm(hh))), k, mat, op)
+        self.P[-1][22:31] = Rm.reshape(-1)
+        return self
+
     def arrays(self):
-        P = np.array(self.P, np.float64) if self.P else np.zeros((0, 22))
+        P = np.array(self.P, np.float64) if self.P else np.zeros((0, NCOL))
         V = np.array(self.V, np.float64) if self.V else np.zeros((1, 2))
         return P, V
 

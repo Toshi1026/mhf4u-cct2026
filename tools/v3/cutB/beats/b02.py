@@ -12,6 +12,9 @@
 - 03 へのズームスルー（f46–55）：DOT を中心に expo_in で 1.13→1.9、ズームのぼかし 0→0.22、NAVY へ暗く。03 が同じ点から
   1.6→1.0 で受ける（zoom_through の 'in'）。
 2026-11-08 見た目：舞台は 01 と同じ _beach。仕上げ（finish_ad）は文字の前。最後の濃紺へは DARK 0.80 のまっすぐな曲線（03 の最初と明るさをそろえる）。
+2026-11-08 r2：02 の中でも sine_inout で 1.8% 押し込む（ズームスルーの最後の倍率は同じ）。雲は 0.22px/フレームで流れ、
+海のつやがまたたく。ねらいの印は白だけ 100px（4 フレームで 1.4→1.0 倍、目盛りと中心の点）。最後は濃紺 #0E2238 へ
+露出を下げる暗くし方（掛け算の色の釣り合い。明るさは前と同じまっすぐの曲線、1 フレーム 0.047）。
 """
 import math
 
@@ -30,6 +33,58 @@ ZT_END = 1.9             # 最後のフレームの倍率（DOT 中心）
 ZT_BLUR = 0.22
 DARK = 0.80              # 最後のフレームで NAVY へ寄せる割合（2026-11-08：03 の新しい最初のフレーム（平均 約0.20）と明るさをそろえる）
 TXT_OUT = 45             # 問いの文字が抜けはじめるフレーム
+
+
+PUSH2 = 0.018            # 2026-11-08 r2：02 の中のゆっくりの押し込み（sine_inout、01 の押し込みに掛ける）
+RET_HALF = 50.0          # ねらいの印の半分の大きさ（全体 100px）
+NAVY_G = core.c('0E2238')
+
+
+def push2(i, n):
+    return 1.0 + PUSH2 * M.ease(i / float(max(1, n - 1)), 'sine_inout')
+
+
+def reticle(L, cx, cy, half, a, col_rgb):
+    """2026-11-08 r2：白だけのねらいの印。四隅のかぎ（2px）＋各辺のまんなかの内向きの 1px の目盛り＋中心の点。輪にはしない。"""
+    if a <= 0.01:
+        return
+    col = L.col(col_rgb, 0.88 * a)
+    arm = half * 0.34
+    for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+        x0, y0 = cx + sx * half, cy + sy * half
+        L.draw.line(L.p([(x0 - sx * arm, y0), (x0, y0), (x0, y0 - sy * arm)]), fill=col, width=L.w(2.0),
+                    joint='curve')
+    tk = L.col(col_rgb, 0.70 * a)
+    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+        p0 = (cx + dx * half, cy + dy * half)
+        p1 = (cx + dx * (half - 7), cy + dy * (half - 7))
+        L.draw.line(L.p([p0, p1]), fill=tk, width=L.w(1.0))
+    r = 2.2
+    L.draw.ellipse(L.box(cx - r, cy - r, cx + r, cy + r), fill=L.col(col_rgb, 0.9 * a))
+
+
+def grade_navy(f, q, dark=0.80, ref=None):
+    """2026-11-08 r2：濃紺 #0E2238 へ「露出を下げる」暗くし方（線形で掛ける。灰色・藤色の上塗りにしない）。
+    明るさ（平均の輝度）は前の式（f·(1−dq)＋NAVY·dq）と同じになるように露出を合わせる（03 の頭とそろう）。"""
+    if q <= 0:
+        return f
+    lum = lambda x: float((x[::3, ::3] @ np.array([0.2126, 0.7152, 0.0722], np.float32)).mean())
+    l0 = lum(f) if ref is None else ref                            # ref：暗くしはじめの明るさ（まっすぐな曲線にする）
+    target = l0 * (1 - dark * q) + lum(core.NAVY[None, None]) * dark * q
+    fl = R.lin(np.clip(f, 0, 1))
+    mean_l = fl[::8, ::8].reshape(-1, 3).mean(0)
+    bal = R.lin(NAVY_G) / np.maximum(mean_l, 1e-4)
+    g = (bal / bal.max()) ** q                                     # 画の平均の色を濃紺の向きへ（掛け算の色の釣り合い）
+    lo, hi = 0.0, 2.0
+    small = fl[::3, ::3] * g
+    for _ in range(18):
+        e = 0.5 * (lo + hi)
+        if lum(R.srgb(small * e)) > target:
+            hi = e
+        else:
+            lo = e
+    e = 0.5 * (lo + hi)
+    return R.srgb(fl * (g * e)).astype(np.float32)
 
 
 def brackets(L, cx, cy, halfs, arm, col, width):
@@ -62,7 +117,7 @@ def put_q2(f, i, f0, exit_f):
     # 「？」以外：KText の char_rise（glyphs を一時的に絞る）
     full = q2.glyphs
     q2.glyphs = body
-    f = q2.reveal(f, i, f0, 'char_rise', stagger=0.9, dur=10, dy_em=0.26, blur=6, accent=f0 + 7, exit=exit_f)
+    f = q2.reveal(f, i, f0, 'char_rise', stagger=0.9, dur=10, dy_em=0.26, blur=6, accent=f0 + 3, exit=exit_f)
     q2.glyphs = full
     # 「？」
     fq = f0 + 0.9 * len(body) + 1
@@ -114,15 +169,16 @@ def render(beat, ctx):
         tw = 0.85 + 0.15 * np.cos((gi - T1['glint']) * 0.35)
         f = A.put_dot(f, S.DOT[0], S.DOT[1], 2.3, alpha=tw)
         f = A.put_glint_fx(f, S.DOT[0], S.DOT[1], gi - T1['glint'])
-        f = S.push(f, S.push_k(gi, gi_end))
-        # ねらいの印（あそこ）：角ごとに 1 フレームずつずれて飛び込み、そのあと呼吸
+        ex = push2(i, n)
+        f = S.push(f, S.push_k(gi, gi_end) * ex)
+        # ねらいの印（あそこ）：2026-11-08 r2 100px、4 フレームで 1.4 倍 → 1.0 倍に締まり、そのあとごく弱く呼吸。白だけ
         if i >= f_ho - 1:
-            br = 1.5 * math.sin(2 * math.pi * 1.2 * (i - f_ho) / core.FPS)
-            halfs = []
-            for c in range(4):
-                p = M.ease((i - (f_ho - 1) - c + 1) / 7.0, 'back_out')
-                halfs.append((70 - 40 * p + br, float(np.clip((i - (f_ho - 1) - c + 1) / 2.0, 0, 1))))
-            f = A.put(f, lambda L, cx, cy: brackets(L, cx, cy, halfs, 11, L.col(core.FOAM, 0.85), L.w(2.4)),
+            k = i - (f_ho - 1)
+            sc_ = 1.4 - 0.4 * M.ease((k + 1) / 4.0, 'cubic_out')
+            br = 1.0 * math.sin(2 * math.pi * 1.2 * (i - f_ho) / core.FPS) * M.ease((k - 3) / 4.0)
+            half = RET_HALF * sc_ + br
+            ra = float(np.clip((k + 1) / 2.0, 0, 1))
+            f = A.put(f, lambda L, cx, cy: reticle(L, cx, cy, half, ra, core.FOAM),
                       S.DOT[0], S.DOT[1], 100, s=3, alpha=1.0, shadow=0.25)
         k_ = S.push_k(gi, gi_end)
         f = BE.screen_post(f)
@@ -132,7 +188,7 @@ def render(beat, ctx):
         if j >= 0:
             q = (j + 1) / float(n - zt0)
             k0 = S.push_k(gi, gi_end)
-            f = M.zoom_through(f, q, S.DOT, 'out', s_out=(1.0, ZT_END / k0), blur=ZT_BLUR, steps=14)
+            f = M.zoom_through(f, q, S.DOT, 'out', s_out=(1.0, ZT_END / (k0 * ex)), blur=ZT_BLUR, steps=14)
         # 文字：01 の文字が抜けて、問いの文字
         f = old1.exit(f, i, -1, dur=6)
         f = old2.exit(f, i, -1, dur=6)
@@ -140,6 +196,8 @@ def render(beat, ctx):
         f = put_q2(f, i, f_ho - 2, TXT_OUT + 1)
         # NAVY へ暗く（文字ごと）
         if j >= 0:
-            d = DARK * q                       # 2026-11-08：まっすぐ（1 フレームの明るさの差 ≤0.055、03 の最初と ≤0.01）
-            f = f * (1 - d) + core.NAVY * d
+            # 2026-11-08 r2：濃紺へ露出を下げる（明るさの曲線は前と同じ：まっすぐ DARK·q）
+            if j == 0:
+                ref_l = float((f[::3, ::3] @ np.array([0.2126, 0.7152, 0.0722], np.float32)).mean())
+            f = grade_navy(f, q, DARK, ref=ref_l)
         yield np.clip(f, 0, 1).astype(np.float32)

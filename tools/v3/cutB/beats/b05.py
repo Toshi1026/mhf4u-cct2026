@@ -16,6 +16,10 @@
 - 出の whip：ずれ 0→300px（expo_in）、最後のぶれ 110px（06 の最初のフレームと同じ）。
 2026-11-08 見た目：床をやめ、濃紺のスタジオ（#0B2238→光だまり #1F4A72）に正面の棚のように並べる（段ごとの接地の影だけ、映り込みなし）。
 ゾウは 3D（_figures3d.elephant_rgba）の 9 種（向き ±8°×鼻の形 3）＋大きさ ±3%、キーは左上・リムは右上。仕上げ（粒 0.006）のあとに文字。
+2026-11-08 r2：暗い映り込みの床（地平 y 975、映り込み 12%・ぼかし 8px）。ゾウは elephant_rgba_v2（先細りの脚・ひざ・
+足の裏・厚い反った耳・鼻のしわ）を 9 種、1 頭ごとに向き・形・大きさ ±4%・明るさ ±3%。床の上に遠近で 5 段（奥 0.82 倍→手前、
+段ごとに半分ずらす）、奥から描く（重なりは手前が前）。注は y 1194/1238（セーフゾーンの中）。
+出は画面全体を上へ振る whip-tilt（中身は下へ、ぶれ 55px）。06 が同じ向きで受ける。
 """
 import math
 
@@ -35,8 +39,15 @@ DX, Y_ROW0, DY = 118.0, 790.0, 75.0
 ESC = 0.82                       # ゾウの大きさ（1単位＝0.92px、全長約 100 単位）
 EL_RGB = core.SKY
 WHIP_OUT = 6
-WHIP_PX, WHIP_BLUR = 300.0, 110.0      # 06 の入りと同じ
+WHIP_PX, WHIP_BLUR = 300.0, 55.0       # 06 の入りと同じ（2026-11-08 r2：画面全体を上へ振る whip-tilt、ぶれ 110 → 55）
+WHIP_SIGN = 1                          # +1：中身が下へ動く＝カメラが上（06 の空）へ振る
 PUSH = 1.05
+# 2026-11-08 r2（美術監督）：暗い映り込みの床（地平 y≈975）。ゾウはこの床の上に遠近で並ぶ（奥の段 0.82 倍 → 手前 1.0 倍）
+HZ5 = 975.0
+ROW_Y0, ROW_DY = 1003.0, 30.0
+ROW_S0, ROW_DS = 0.82, 0.045
+REFL_A, REFL_BLUR = 0.12, 8.0
+NOTE_Y = (1194, 1238)
 
 _C = {}
 
@@ -50,6 +61,17 @@ def background():
     k = np.exp(-r2 * 1.25)
     bg = R.hexl('0B2238') * (1 - k)[..., None] + R.hexl('1F4A72') * k[..., None]
     bg = bg * (1 - 0.25 * np.clip(r2 - 1.0, 0, 1.5) / 1.5)[..., None]
+    # 床：地平の少し明るい紺 → 手前の深い紺。光だまりの 12% の映り込み（ぼかし）。地平の線は光らせない（やわらかい明るさの差だけ）
+    fl = (y >= HZ5).astype(np.float32)[..., None]
+    d = np.clip((y - HZ5) / (H - HZ5), 0, 1)
+    top = bg[int(HZ5) - 1][None] * 0.80                                 # 地平では奥の壁と 80% の明るさでつなぐ
+    floor = top * (1 - d ** 0.5)[..., None] + R.hexl('06152A') * (d ** 0.5)[..., None]
+    yr = 2 * HZ5 - y
+    r2m = ((x - W / 2) / (W * 0.62)) ** 2 + ((yr - 860) / (H * 0.36)) ** 2
+    floor = floor + R.hexl('1F4A72') * (REFL_A * 1.6 * np.exp(-r2m * 1.25) * np.exp(-(y - HZ5) / 260.0))[..., None]
+    bg = bg * (1 - fl) + floor * fl
+    near = (np.abs(y - HZ5) < 4)[..., None]
+    bg = cv2.GaussianBlur(bg.astype(np.float32), (1, 9), 0.0, sigmaY=1.2) * near + bg * (1 - near)    # 地平の線はやわらかく
     _C['bg'] = R.srgb(bg).astype(np.float32)
     return _C['bg']
 
@@ -61,30 +83,62 @@ YAWS = (12.0, 20.0, 28.0)
 
 
 def elephants3d():
-    """3D のゾウ 9 種（向き ±8° × 鼻の形 3 つ）。(rgba, ax, ay) のリスト。1 回だけ描く。"""
+    """3D のゾウ 9 種（向き 12/20/28°＝±8° × 鼻と耳の形 3 つ）。(rgba, ax, ay) のリスト。1 回だけ描く（r2：elephant_rgba_v2）。"""
     if 'el3' not in _C:
         out = []
         for yaw in YAWS:
             for tr in (0, 1, 2):
-                rgba, ax, ay = F3.elephant_rgba(ESC * 1.06, yaw=yaw, light=KEY5, env=ENV5, trunk=tr)
+                rgba, ax, ay = F3.elephant_rgba_v2(ESC * 1.06, yaw=yaw, light=KEY5, env=ENV5, trunk=tr, ear=tr)
                 out.append((F3.cap_white(rgba), ax, ay))
         _C['el3'] = out
     return _C['el3']
 
 
 def variant(r, c):
-    """段・列ごとの見た目のばらつき（いつも同じ）：(種類, 大きさ)。"""
-    h = (r * 7 + c * 13 + (r * c) % 5) % 9
-    sc = 1.0 + 0.03 * math.sin(r * 2.1 + c * 1.7)
-    return h, sc
+    """1 頭ごとのばらつき（いつも同じ）：(種類, 大きさ ±4%, 明るさ ±3%)。"""
+    rng = np.random.default_rng(1000 + r * 17 + c)
+    return int(rng.integers(0, 9)), float(rng.uniform(0.96, 1.04)), float(rng.uniform(0.97, 1.03))
 
 
-def put_elephant(f, el, x, y, sx, sy, a):
-    """接地の影（足もと：2–4px の濃い芯＋やわらかい広がり、#1B3550 を掛ける）→ ゾウ。床への映り込みはなし。"""
+def instance(r, c):
+    """(ゾウの板, 映り込みの板)：明るさのばらつきを入れた 1 頭ぶん（1 回だけ作る）。"""
+    key = ('inst', r, c)
+    if key not in _C:
+        vk, _, tone = variant(r, c)
+        rgba, ax, ay = elephants3d()[vk]
+        t = rgba.copy()
+        t[..., :3] = np.clip(t[..., :3] * tone, 0, 1)
+        fl = t[::-1].copy()
+        pad = int(REFL_BLUR * 3)
+        fl = np.pad(fl, ((pad, pad), (pad, pad), (0, 0)))
+        prem = np.dstack([fl[..., :3] * fl[..., 3:], fl[..., 3:]])
+        prem = cv2.GaussianBlur(prem, (0, 0), REFL_BLUR)
+        refl = np.dstack([prem[..., :3] / np.maximum(prem[..., 3:], 1e-5), prem[..., 3:] * REFL_A])
+        h = rgba.shape[0]
+        _C[key] = ((t, ax, ay), (refl.astype(np.float32), ax + pad, (h - ay) + pad))
+    return _C[key]
+
+
+def row_pos(r, c):
+    """床の上の段 r（0＝奥）・列 c の足もとの位置と、遠近の大きさ。奇数の段は半分ずらす。"""
+    s_ = ROW_S0 + ROW_DS * r
+    y = ROW_Y0 + ROW_DY * r
+    x = W / 2 + (c - (COLS - 1) / 2 + (0.25 if r % 2 else -0.25)) * DX * s_ * 0.98
+    return x, y, s_
+
+
+def put_elephant(f, el, x, y, sx, sy, a, refl=None, y_floor=None):
+    """床への映り込み（12%・ぼかし 8px、浮いている高さの分だけ下へ）→ 接地の影（足もとの環境の遮へい）→ ゾウ。"""
     rgba, ax, ay = el
+    yf = y if y_floor is None else y_floor
+    if refl is not None:
+        r_rgba, rax, ray = refl
+        f = put_sprite(f, r_rgba, rax, ray, x, yf + (yf - y), sx, a, sy=sy)
     if a > 0.3:
-        f = R.contact_shadow(f, x + 3, y + 1, 44 * sx, 5.0, opacity=0.35 * a, rgb=core.c('050F1C'), blur=5.0)
-        f = R.contact_shadow(f, x + 1, y, 36 * sx, 2.2, opacity=0.55 * a, rgb=core.c('050F1C'), blur=1.6)
+        lift = max(0.0, yf - y)
+        k_ = float(np.exp(-lift / 20.0))
+        f = R.contact_shadow(f, x + 3, yf + 1, 44 * sx, 5.0, opacity=0.35 * a * k_, rgb=core.c('050F1C'), blur=5.0)
+        f = R.contact_shadow(f, x + 1, yf, 36 * sx, 2.2, opacity=0.55 * a * k_, rgb=core.c('050F1C'), blur=1.6)
     return put_sprite(f, rgba, ax, ay, x, y, sx, a, sy=sy)
 
 
@@ -181,11 +235,10 @@ def elephants_at(i, f_zo):
             k = i - (f_zo + el_delay(r, c))
             if k < 0:
                 continue
-            x = W / 2 + (c - (COLS - 1) / 2) * DX
-            y = Y_ROW0 + r * DY
+            x, y, s_ = row_pos(r, c)
             if k < DROP:
                 q = M.ease((k + 1) / DROP, 'quad_in')
-                y += -DROP_PX * (1 - q)
+                y += -DROP_PX * s_ * (1 - q)
                 sx, sy = 0.97, 1.05
                 a = M.ease((k + 1) / 3.0, 'sine_inout')
             elif k < DROP + 2:
@@ -193,7 +246,7 @@ def elephants_at(i, f_zo):
             else:
                 sp = M.spring((k - DROP - 1) / core.FPS, 0.45, 4.0)
                 sx, sy, a = 1.14 + (1 - 1.14) * sp, 0.84 + (1 - 0.84) * sp, 1.0
-            out.append((x, y, sx, sy, a))
+            out.append((x, y, sx * s_, sy * s_, a))
     return out
 
 
@@ -224,8 +277,7 @@ def dust(f_zo):
         bs = []
         for r in range(ROWS):
             for c in range(COLS):
-                x = W / 2 + (c - (COLS - 1) / 2) * DX
-                y = Y_ROW0 + r * DY
+                x, y, _s = row_pos(r, c)
                 f0 = f_zo + el_delay(r, c) + DROP
                 for side, rng in ((-1, (-175, -140)), (1, (-40, -5))):
                     bs.append(M.Burst(r * 31 + c * 7 + (side > 0), 1, (x + side * 30, y - 2), angle_range=rng,
@@ -250,9 +302,9 @@ def render(beat, ctx):
     sub = M.Odometer('35', W / 2, 686, digit_size=48, side_size=48, prefix='ゾウ 約', suffix='頭分', weight='Medium',
                      side_weight='Medium', gap=0.08, digit_color=core.FOAM, lock_dur=6, lock_scale=1.08, lock_drop=3.0, hide_zero=True,
                      blur_k=0.3)
-    note1 = M.KText([dict(text='アフリカゾウ（大人のオス）約5.5t として', x=W / 2, y=1162, size=28, weight='Medium',
+    note1 = M.KText([dict(text='アフリカゾウ（大人のオス）約5.5t として', x=W / 2, y=NOTE_Y[0], size=28, weight='Medium',
                           alpha=0.9, track=0.04)])
-    note2 = M.KText([dict(text='体重60kg・パンチが当たる時間0.01秒・空気抵抗なし（試算）', x=W / 2, y=1206, size=28,
+    note2 = M.KText([dict(text='体重60kg・パンチが当たる時間0.01秒・空気抵抗なし（試算）', x=W / 2, y=NOTE_Y[1], size=28,
                           weight='Medium', alpha=0.8, track=0.02)])
     dusts = dust(f_zo)
 
@@ -263,9 +315,12 @@ def render(beat, ctx):
         f = bg.copy()
         # ゾウ（段がそろうたびに少し沈む）
         gy = grid_nudge(i, f_zo)
-        for (x, y, sx, sy, a), (r, c) in zip(elephants_at(i, f_zo), _order(i, f_zo)):
-            vk, vs = variant(r, c)
-            f = put_elephant(f, els[vk], x, y + gy, sx * vs, sy * vs, a * 0.97)
+        vis = sorted(zip(elephants_at(i, f_zo), _order(i, f_zo)), key=lambda e: (e[1][0], e[1][1]))   # 奥の段から
+        for (x, y, sx, sy, a), (r, c) in vis:
+            _vk, vs, _t = variant(r, c)
+            body, refl = instance(r, c)
+            yf = row_pos(r, c)[1]
+            f = put_elephant(f, body, x, y + gy, sx * vs, sy * vs, a * 0.97, refl=refl, y_floor=yf + gy)
         for b in dusts:
             if 0 <= i - b.f0 < 9:
                 f = b.draw(f, i)
@@ -304,9 +359,9 @@ def render(beat, ctx):
         j = i - (n - WHIP_OUT)
         if j >= 0:
             q = (j + 1) / WHIP_OUT
-            f = M.whip(f, q, axis=0, sign=-1, px=WHIP_PX, blur=WHIP_BLUR, direction='out')
+            f = M.whip(f, q, axis=0, sign=WHIP_SIGN, px=WHIP_PX, blur=WHIP_BLUR, direction='out')
             e = M.ease(q, 'expo_in')
-            Md = np.float32([[1, 0, 0], [0, 1, -WHIP_PX * e]])
+            Md = np.float32([[1, 0, 0], [0, 1, WHIP_SIGN * WHIP_PX * e]])
             ta = cv2.warpAffine(ta, Md, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
             t0 = cv2.warpAffine(outs[0], Md, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
             k_ = (1 - e) ** 2

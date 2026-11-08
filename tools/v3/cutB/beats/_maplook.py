@@ -37,7 +37,7 @@ try:
 except Exception:       # pragma: no cover
     nb = None
 
-VER = 'v2c'
+VER = 'v2e'            # 2026-11-08：平野の陰影（低い起伏 ×4）・平野と山のなめらかなつなぎ・灰青緑の平野・沖の深さの色をのばす
 # (テクセル／地図の px, 範囲 (x0, x1, y0, y1)（地図の px）, DEM のズーム)
 LEVELS = [(1, (-200, 1300, -300, 2200), 9), (2, (-20, 1100, -20, 1940), 10), (4, (129, 991, 305, 1813), 11),
           (8, (362, 669, 624, 1087), 12), (16, (439, 600, 702, 934), 13)]
@@ -47,6 +47,9 @@ SUN_AZ, SUN_EL = 315.0, 40.0
 C_LAND = '4B6A86'
 C_HIGH = '8FB0C8'
 C_PLAIN = '5B7D95'           # #5E7F90 を色相 205° 寄りに（隣の青い丘と並んでオリーブに見えないように）
+C_PLAIN2 = '5E7E8A'          # 2026-11-08：平野は灰色がかった青緑（海の青と色相をずらし、水に見えないように）
+PLAIN_K2 = 0.48              # 平野の明るさ（線形の倍率）：海より値で 15% 以上明るく
+EX_LOW, LOW_TOP = 4.0 * EXN, 60.0   # 平野の陰影：0–60m を山の 4 倍に強調した起伏で光を当てる
 C_SEA_SH = '123A60'
 C_SEA_DP = '0E2E4E'
 C_FILL = '9FB8D0'
@@ -209,6 +212,14 @@ def _bake(r, rect, z):
     gy, gx = np.gradient(Zs * EXN, cell)
     nrm = np.stack([-gx, gy, np.ones_like(gx)], -1)    # x 東、y 北（行は南へ増えるので符号を反転）、z 上
     nrm /= np.linalg.norm(nrm, axis=-1, keepdims=True)
+    # 平野の低い起伏（0–60m を ×4、自然堤防・段丘・川の跡）。20–120m で山の法線へなめらかにつなぐ
+    Zl = cv2.GaussianBlur(np.minimum(Z, LOW_TOP), (0, 0), 0.8)
+    gyl, gxl = np.gradient(Zl * EX_LOW, cell)
+    nrm_l = np.stack([-gxl, gyl, np.ones_like(gxl)], -1)
+    nrm_l /= np.linalg.norm(nrm_l, axis=-1, keepdims=True)
+    k_m = R.smoothstep(20.0, 120.0, Zs)[..., None]
+    nrm = nrm_l * (1 - k_m) + nrm * k_m
+    nrm /= np.linalg.norm(nrm, axis=-1, keepdims=True)
 
     def sun(az, el):
         a, e = math.radians(az), math.radians(el)
@@ -230,19 +241,15 @@ def _bake(r, rect, z):
     # ---- 陸の色（線形）
     e = Zs
     k_hi = R.smoothstep(600.0, 1700.0, e)[..., None] * HI_MIX
-    k_pl = (1 - R.smoothstep(15.0, 90.0, e))[..., None]
-    slope = np.sqrt(np.clip(1 - nrm[..., 2] ** 2, 0, 1))
-    k_pl = k_pl * (1 - R.smoothstep(0.08, 0.25, slope))[..., None]
+    # 平野と山の色：標高 20–120m でなめらかに（傾きでの切り替えはしない＝崖のような段を作らない）
+    k_pl = (1 - R.smoothstep(20.0, 120.0, e))[..., None]
     land_c = R.hexl(C_LAND) * (1 - k_hi) + R.hexl(C_HIGH) * k_hi
-    plain_c = R.hexl(C_PLAIN) * PLAIN_K
+    plain_c = R.hexl(C_PLAIN2) * PLAIN_K2
     X = (np.arange(nx, dtype=np.float32)[None] + 0.5) / r + rect[0]
     Yy = (np.arange(ny, dtype=np.float32)[:, None] + 0.5) / r + rect[2]
-    fields = R.fbm(X * 3.2, Yy * 3.2, 3, seed=71) * 0.7 + R.fbm(X * 9.0, Yy * 9.0, 2, seed=72) * 0.3
-    plain_c = plain_c * (1 + 0.07 * fields)[..., None]
-    # 平野の細かい起伏（自然堤防・川の跡・段丘）：DEM の高い周波数（約 150m）を明暗に
-    hp = Zs - cv2.GaussianBlur(Zs, (0, 0), max(1.5, 150.0 / cell))
-    micro = np.tanh(hp / 4.0)
-    plain_c = plain_c * (1 + 0.18 * micro)[..., None]
+    # 田畑・町の細かいむら（値で 2–3%）：田畑の区画（約 0.4km）と町の細かい粒（約 0.1km）
+    fields = R.fbm(X * 11.0, Yy * 11.0, 2, seed=71) * 0.6 + R.fbm(X * 40.0, Yy * 40.0, 2, seed=72) * 0.4
+    plain_c = plain_c * (1 + 0.025 * np.clip(fields, -1.5, 1.5))[..., None]
     alb = land_c * (1 - k_pl) + plain_c * k_pl
     Lr = sun(45.0, 25.0)
     rim = np.clip(nrm @ Lr, 0, 1) ** 3 * (1 - nrm[..., 2]) * 2.0
@@ -258,7 +265,7 @@ def _bake(r, rect, z):
     dkm = dist / (_tosa.PX_KM * r)
     dkm = cv2.GaussianBlur(dkm.astype(np.float32), (0, 0), max(1.0, 0.4 * _tosa.PX_KM * r))
     dkm = np.where(water, dkm, 0)
-    deep = 1 - np.exp(-dkm / 7.0)
+    deep = 1 - np.exp(-dkm / 14.0)                     # 2026-11-08：7→14km（沖の下 3 分の 1 まで深さの色がゆっくり続く）
     sea_lin = R.hexl(C_SEA_SH) * (1 - deep)[..., None] + R.hexl(C_SEA_DP) * deep[..., None]
     shal = np.exp(-dkm / 0.9)
     sea_lin = sea_lin * (1 + 0.10 * shal)[..., None]
@@ -544,13 +551,31 @@ def coast_lines(ctr, z, alpha=0.40, width=1.25, inland_a=0.22, ls=None):
     return Lc.done()
 
 
-def map_layer(t, ctr, z, haze=0.16, tilt=1.6, coast_a=0.40):
-    """03・04 の地図（sRGB float32、文字・弧なし）。"""
+RIVER_C = '5FA3D6'      # 川の線（T と同じ。強調色にしない）
+
+
+def river_lines(ctr, z, alpha=0.55, width=1.0):
+    """仁淀川（b11 の線、河口を地図の海岸線に合わせたもの）を 1px の線のマスクに。"""
+    if 'riv' not in _S:
+        from beats import b11
+        from cutB.beats import _bmap as B
+        _S['riv'] = b11._river(B.setup()['M'])[0]
+    ax, ay = B_ANCHOR()
+    Lr = G.Lines()
+    Lr.poly((_S['riv'] - ctr) * z + (ax, ay), width, 255 * alpha)
+    return Lr.done()
+
+
+def map_layer(t, ctr, z, haze=0.16, tilt=1.6, coast_a=0.40, river_a=0.0):
+    """03・04 の地図（sRGB float32、文字・弧なし）。river_a > 0 なら仁淀川を 1px の線で。"""
     rgb, wa = render_affine(ctr, z, t)
     f = sea_and_air(rgb, wa, t, ctr, z, haze=haze, tilt=tilt)
     if coast_a > 0:
         m = coast_lines(ctr, z, alpha=coast_a)
         f += (np.asarray(core.FOAM, np.float32) - f) * m[..., None]
+    if river_a > 0:
+        m = river_lines(ctr, z, alpha=river_a)
+        f += (np.asarray(core.c(RIVER_C), np.float32) - f) * m[..., None]
     return f, wa
 
 
@@ -576,21 +601,29 @@ def label_scrims(f, a=1.0, cg=True, scale_bar=False, credit_a=0.0):
     if scale_bar:
         f = radial_scrim(f, 930, 362, 150, 60, 0.25 * a)
     if credit_a > 0:
-        f = radial_scrim(f, 830, 1234, 260, 50, 0.25 * credit_a)
+        f = radial_scrim(f, 830, CREDIT_Y - 8, 260, 46, 0.25 * credit_a)
     return f
 
 
 _CR = []
+# 出典の決まった下のベースライン（03・04・T で同じ）。2026-11-08 美術監督のレビュー：見出しから 48px 以上離す。
+# y≈1560 の案もあったが、そこは IG リールの UI（キャプション・右の操作ボタンの列）の下で core.SAFE（y≤1248）の外なので、
+# セーフゾーンの下端に固定し、見出しの方を上げて 48px をあける。
+CREDIT_Y = 1240
+CREDIT_X = 1012
+CREDIT_SIZE = 22
+CREDIT_A = 0.70
+CREDIT_TOP = CREDIT_Y - 20            # 出典の字の上端（ほかの文字はこれより 48px 以上上に）
 
 
-def credit(f, alpha=1.0):
-    """出典「国土地理院（標高タイル）を加工して作成」：23px・白 0.6・やわらかい影・右寄せ（x 1012、y 1242）。"""
+def credit(f, alpha=1.0, y=None):
+    """出典「国土地理院（標高タイル）を加工して作成」：22px・白 0.70・やわらかい影・右寄せ（x 1012、y CREDIT_Y）。"""
     if alpha <= 0.002:
         return f
     if not _CR:
-        _CR.append(U.Patch([dict(text=R.GSI_CREDIT, x=1012, y=1242, size=23, weight='Medium', anchor='rs', track=0.02,
-                                 alpha=0.6, shadow=0.7)]))
-    return _CR[0].put(f, alpha)
+        _CR.append(U.Patch([dict(text=R.GSI_CREDIT, x=CREDIT_X, y=CREDIT_Y, size=CREDIT_SIZE, weight='Medium', anchor='rs',
+                                 track=0.02, alpha=CREDIT_A, shadow=0.7)]))
+    return _CR[0].put(f, alpha, dy=0 if y is None else y - CREDIT_Y)
 
 
 def drop_shadow(f, m, dx=2.0, dy=3.0, blur=2.5, strength=0.35):

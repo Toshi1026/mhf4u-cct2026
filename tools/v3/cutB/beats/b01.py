@@ -21,6 +21,12 @@
 - 当たり：平らな星・破片・全周の線をやめ、打つ向き ±35° の先の細い光の筋＋足もとの砂の粒（光と影つき）＋低い砂ぼこり。
 - 飛ぶ悪役は 1 回描いて速さの向きにぶらす（サブフレームの代わり）。ヒットストップの形は 1 回だけ描く。
 - カメラのあと：下 20% を 12% 暗く σ2 でぼかす、ヒットストップ中は水平線から上を σ1.5。仕上げは _render.finish_ad。文字は最後。
+2026-11-08 r2（美術監督の 2 回目。時間・動きはそのまま）：
+- 拳は fist_v3（4 つの拳頭の平らな打つ面・下へ折った中節としわ・人差し指と中指の中節を横切る親指・しわ 2 本の無地の袖、
+  キーは右上・冷たいリム）。袖のうしろは速さの中へ消える。拳の下の砂に環境の遮へい。
+- 当たり：灰色の汚れのような粒をやめ、SandKick3D（50 粒が上へ・奥へ飛んで約 8 フレームで落ちる、ぶらした筋）。
+  ヒットストップの中で悪役は 0.85/1.12 を 2 フレーム → 0.92/1.06。光らせない。
+- 飛ぶ悪役は 'tumble'（ひじ・ひざを曲げた形、短いスカーフ）＋空の側のリム（ENV_FLY）、ぶれの上限 2.5＋1.2·大きさ px。
 """
 import math
 
@@ -270,10 +276,81 @@ class SandKick:
 _PK = {}
 
 
+class SandKick3D(SandKick):
+    """2026-11-08 r2：当たりの砂の跳ね（50 粒）。地面の 3D（横 x・奥行き z・高さ h）で、上へ・カメラから遠ざかる向きへ飛び、
+    約 8 フレームで落ちて止まる。各粒は 1 フレームの移動ぶんぶらした筋（エネルギーを保つ α）。影の円盤は描かない（汚れに見えない）。
+    puff（低い砂ぼこり）は SandKick のまま。"""
+
+    def __init__(self, f0, origin, n=50, seed=12):
+        super().__init__(f0, origin, n=44, seed=seed)
+        rng = np.random.default_rng(seed + 100)
+        self.n = n
+        a = np.radians(rng.normal(-8.0, 30.0, n))                 # 横の向き（打つ向きの右へ多め）
+        sp = rng.uniform(2.0, 12.0, n)
+        self.kx = np.cos(a) * sp + 2.0                            # px/フレーム（足もとの奥行きでの画面の x）
+        self.kz = rng.uniform(0.006, 0.030, n)                    # 奥へ（足もとの奥行きを 1 として、1 フレームあたり）
+        self.kh = rng.uniform(6.0, 16.0, n)                       # 上へ px/フレーム
+        self.kg = 2.9
+        self.kr = rng.uniform(1.5, 3.4, n)
+        self.kx0 = rng.normal(0, 7, n)
+        self.kd = rng.uniform(0, 1.6, n)                          # 出る時刻のずれ
+
+    def _pos(self, dt):
+        t = np.clip(dt - self.kd, 0, None)
+        t_land = 2 * self.kh / self.kg
+        tf = np.minimum(t, t_land)
+        z = 1.0 + self.kz * tf * (1 - 0.02 * tf)
+        k = 1.0 / z                                               # 遠いほど小さく、地平へ近づく
+        gy = S.HZ + (self.o[1] - S.HZ) * k
+        gx = self.o[0] + (self.kx0 + self.kx * tf * (1 - 0.03 * tf)) * k
+        hh = np.maximum(self.kh * tf - 0.5 * self.kg * tf * tf, 0)
+        return gx, gy - hh * k, k, t, t_land
+
+    def draw(self, f, i):
+        dt = float(i - self.f0)
+        if dt < 0 or dt > 16:
+            return f
+        x1, y1, k, t, tl = self._pos(dt)
+        x0_, y0_, _, _, _ = self._pos(dt - 0.5)                  # 180° シャッター
+        a = np.clip((t - 0.0) * 2, 0, 1) * (1 - np.clip((t - tl) / 4.0, 0, 1))
+        live = (a > 0.02) & (t > 0)
+        if not live.any():
+            return f
+        s = 4
+        bx0 = int(min(x1[live].min(), x0_[live].min()) - 12)
+        by0 = int(min(y1[live].min(), y0_[live].min()) - 12)
+        bx1 = int(max(x1[live].max(), x0_[live].max()) + 12)
+        by1 = int(max(y1[live].max(), y0_[live].max()) + 12)
+        w, h = bx1 - bx0, by1 - by0
+        al = np.zeros((h * s, w * s), np.float32)
+        hi = np.zeros((h * s, w * s), np.float32)
+        P = lambda v: int(round(v * s * 16))
+        for j in np.nonzero(live)[0]:
+            r = max(0.6, self.kr[j] * k[j])
+            ln = math.hypot(x1[j] - x0_[j], y1[j] - y0_[j])
+            aa = float(a[j]) * min(1.0, (2 * r) / (2 * r + ln)) ** 0.6
+            p0 = (P(x0_[j] - bx0), P(y0_[j] - by0))
+            p1 = (P(x1[j] - bx0), P(y1[j] - by0))
+            cv2.line(al, p0, p1, aa, max(1, int(round(2 * r * s))), cv2.LINE_AA, shift=4)
+            cv2.circle(hi, (P(x1[j] - bx0 - 0.3 * r), P(y1[j] - by0 - 0.3 * r)), P(r * 0.6), aa, -1, cv2.LINE_AA,
+                       shift=4)
+        al = cv2.resize(al, (w, h), interpolation=cv2.INTER_AREA)
+        hi = cv2.resize(hi, (w, h), interpolation=cv2.INTER_AREA)
+        xa, ya, xb, yb = max(bx0, 0), max(by0, 0), min(bx1, f.shape[1]), min(by1, f.shape[0])
+        if xb <= xa or yb <= ya:
+            return f
+        sl = (slice(ya - by0, yb - by0), slice(xa - bx0, xb - bx0))
+        am = np.clip(al[sl], 0, 1)[..., None]
+        hm = np.clip(hi[sl], 0, 1)[..., None]
+        col = core.c('B4BDC5') * (1 - hm) + core.c('E8ECEE') * hm         # 砂粒：上が光る
+        f[ya:yb, xa:xb] = f[ya:yb, xa:xb] * (1 - am) + col * am
+        return f
+
+
 def particles(T):
     if _PK.get('f0') != T['hit']:
         _PK['f0'] = T['hit']
-        _PK['kick'] = SandKick(T['hit'] + HOLD, (S.FEET[0] + 6, S.FEET[1] + 2))
+        _PK['kick'] = SandKick3D(T['hit'] + HOLD - 1, (S.FEET[0] + 6, S.FEET[1] + 2))
     return _PK['kick']
 
 
@@ -284,18 +361,18 @@ _FIST = {}
 def fist_sprite():
     """拳の板を 1 回だけ描く（3D、向きは DIR 固定）。(rgba, ax, ay)：ax, ay は拳のまんなか。影は地面へ別に落とす。"""
     if 'f' not in _FIST:
-        _FIST['f'] = F3.fist_v2(DIR, FS)
+        _FIST['f'] = F3.fist_v3(DIR, FS)          # 2026-11-08 r2：本物の拳（拳頭の打つ面・折った中節・親指・無地の袖）
     return _FIST['f']
 
 
 _HOLD = {}
 
 
-def _hold_sprite(fn):
-    """ヒットストップのあいだ同じ形の悪役を 1 回だけ描く。"""
-    if 'v' not in _HOLD:
-        _HOLD['v'] = fn()
-    return _HOLD['v']
+def _hold_sprite(fn, key=0):
+    """ヒットストップのあいだ同じ形の悪役を 1 回だけ描く（key ごと）。"""
+    if key not in _HOLD:
+        _HOLD[key] = fn()
+    return _HOLD[key]
 
 
 def cv2_blur(a, s):
@@ -342,6 +419,10 @@ def put_fist(f, i, T):
         f = speed_lines(f, p, None if q is None else HITC + q * DV)
     f = ground_shadow(f, rgba, int(p[0] - ax), int(p[1] - ay), S.FEET[1] + 4, opacity=0.30,
                       lift=max(0.0, S.FEET[1] - p[1] - 30))
+    # 拳の下の砂の環境の遮へい（やわらかい楕円。拳が低いほど濃い）
+    gap = max(0.0, S.FEET[1] + 4 - (p[1] + 52 * FS))
+    f = R.contact_shadow(f, p[0] + 18, S.FEET[1] + 6, 70 + 0.25 * gap, 9 + 0.05 * gap,
+                         opacity=0.30 * float(np.exp(-gap / 90.0)), rgb=core.c('1B3550'), blur=10 + 0.1 * gap)
     spr = rgba
     pad = 0
     if abs(v) > 6:                                  # サブフレームのぶれ（180°シャッター＝1 フレームの移動の半分）
@@ -423,10 +504,12 @@ def villain_draw(t, T):
         c = np.array([fx, fy]) + M2 @ (np.array([tx, ty]) - (fx, fy))
         return F3.villain_v2(c[0], c[1] + bob, S.VSCALE, 0.0, 'stand', sec, M2=M2)
     if t < h + HOLD:
-        # ヒットストップ：打つ向きにつぶれて止まる
-        M2 = M.squash_matrix(DIR, 0.72, 1.18) @ A._R(7.0)
+        # ヒットストップ：打つ向きにつぶれて止まる（2026-11-08 r2：0.85/1.12 を 2 フレーム → 最後の 1 フレームで少し戻す）
+        k_ = 0 if t < h + HOLD - 1 else 1
+        sa, sb = ((0.85, 1.12), (0.92, 1.06))[k_]
+        M2 = M.squash_matrix(DIR, sa, sb) @ A._R(7.0)
         c = np.array([fx, fy]) + M2 @ (np.array([tx, ty]) - (fx, fy)) + DV * 8
-        return _hold_sprite(lambda: F3.villain_v2(c[0], c[1], S.VSCALE, 0.0, 'stand', h / core.FPS, M2=M2))
+        return _hold_sprite(lambda: F3.villain_v2(c[0], c[1], S.VSCALE, 0.0, 'stand', h / core.FPS, M2=M2), k_)
     x, y, sc, ang, tp = flight(ta, T)
     if sc * 34 < 5:
         return None
@@ -438,7 +521,7 @@ def villain_draw(t, T):
     M2 = M.squash_matrix(va, s_al, s_ac)
     vl = flight_vel(ta - 2, T)                    # マントは 2 フレーム遅れて、速さの反対へ
     cape = math.degrees(math.atan2(-vl[1], -vl[0])) + 9 * math.sin(sec * 11.0)
-    return F3.villain_v2(x, y, sc, ang, 'fly', sec, M2=M2, cape_ang=cape)
+    return F3.villain_v2(x, y, sc, ang, 'tumble', sec, M2=M2, cape_ang=cape, env=F3.ENV_FLY)
 
 
 def put_villain(f, i, T):
@@ -455,7 +538,7 @@ def put_villain(f, i, T):
         sp = float(np.hypot(*v))
         rgba, x0, y0 = r
         if sp > 8:                                  # 1 回描いて速さの向きにぶらす（180° シャッターの 0.35）
-            ln = sp * 0.35
+            ln = min(sp * 0.35, 2.5 + 1.2 * sc)    # 2026-11-08 r2：ぶれの上限（頭・手足が読めるように）
             pad = int(ln / 2) + 2
             rgba = M.smear(np.pad(rgba, ((pad, pad), (pad, pad), (0, 0))), v[0] / sp * ln, v[1] / sp * ln)
             x0, y0 = x0 - pad, y0 - pad

@@ -22,13 +22,17 @@ import core
 from core import W, H, WL
 from cutB.beats import _render as R, _xsec as X, _clouds3d as C3
 
-ZEN, HOR = R.hexl('2F6FB0'), R.hexl('BFE0F5')
+ZEN, HOR = R.hexl('2F78B0'), R.hexl('BFE0F5')          # 2026-11-08 r2：天頂の色相 210→206°（画面の上で 約208°、01 と同じ）
 HAZE_C = R.hexl('BFDDF2')
 GLOW = R.hexl('EAF6FF')
 W_TOP, W_DEEP = R.hexl('1F6FB5'), R.hexl('0C3560')
 ROCK = R.hexl('5E7385')
-CLOUDS = [(330.0, WL - 10.0, 120, 61), (512.0, WL - 22.0, 92, 67), (905.0, WL - 14.0, 132, 71),
-          (60.0, WL - 30.0, 80, 73)]
+# 2026-11-08 r2：雲は 600–1,200m の帯（高さの図の縮尺に合う）、60% の濃さ。目盛りの数字・弧から離す
+CLOUDS = [(318.0, WL - 104.0, 112, 61), (508.0, WL - 150.0, 88, 67), (690.0, WL - 98.0, 104, 71),
+          (52.0, WL - 128.0, 80, 73)]
+CLOUD_A = 0.60
+SHAFTS = [(260.0, 70.0, 0.05), (420.0, 48.0, 0.04), (610.0, 90.0, 0.06), (760.0, 56.0, 0.045),
+          (930.0, 80.0, 0.05), (1110.0, 44.0, 0.04), (1280.0, 64.0, 0.05)]
 _C = {}
 
 
@@ -63,7 +67,7 @@ def _cloud(w, seed):
     st = prem / np.maximum(a, 1e-4)[..., None]
     st = np.minimum(st, 0.80)
     st = st * 0.5 + HAZE_C * 0.5                                   # 50% かすむ
-    a = a * 0.75
+    a = a * CLOUD_A
     return (st * a[..., None]).astype(np.float32), a.astype(np.float32)
 
 
@@ -85,24 +89,41 @@ def static():
     land = _land_mask()
     wob = R.fbm(xx / 260.0, yy / 90.0, 4, seed=31) * 10 + R.fbm(xx / 60.0, yy / 25.0, 3, seed=32) * 3
     q = ds + wob
-    # 地層：±6% L の層（細い線にしない＝帯の明暗）
-    strata = np.sin(q / 14.0 + R.fbm(xx / 300.0, yy / 300.0, 2, seed=33) * 2.5)
-    fine = np.sin(q / 3.2 + R.fbm(xx / 90.0, yy / 40.0, 2, seed=39) * 4.0)
-    grain = R.sample(R.fbm_tile(512, 128, 2, 0.6, 41), xx * 1.4, yy * 1.4)
+    # 2026-11-08 r2（美術監督）：一色の灰色の面をやめる。
+    # 地層の帯 4 本（値 ±6%、深いほど色相がスレートの青 210–215° へ）＋岩の肌（fbm 3 オクターブの法線を左上の光で）
+    band_w = 46.0
+    bi = np.floor(q / band_w)
+    rngb = np.random.default_rng(31)
+    vals = rngb.uniform(-0.06, 0.06, 64)
+    vals[1::2] = -np.abs(vals[1::2]); vals[0::2] = np.abs(vals[0::2])
+    bv = vals[np.clip(bi.astype(int) + 4, 0, 63)]
+    bsoft = R.smoothstep(0.0, 4.0, q - bi * band_w) * R.smoothstep(band_w, band_w - 4.0, q - bi * band_w)
+    lk = 1 + bv * (0.55 + 0.45 * bsoft)
+    hue_k = np.clip(q / 200.0, 0, 1)                                    # 深いほどスレートの青
+    slate = R.hexl('56708F')                                           # 色相 約 212°
+    rock = (ROCK * (1 - 0.6 * hue_k[..., None]) + slate * (0.6 * hue_k[..., None])) * lk[..., None]
+    hgt = R.fbm(xx / 38.0, yy / 22.0, 3, seed=34) + 0.18 * R.fbm(xx / 9.0, yy / 6.0, 3, seed=41)
+    gx_, gy_ = np.gradient(hgt, axis=1) * 9.0, np.gradient(hgt, axis=0) * 9.0
+    nx_, ny_, nz_ = -gx_, -gy_, np.ones_like(gx_)
+    nn_ = np.sqrt(nx_ ** 2 + ny_ ** 2 + 1)
+    ndl_ = (nx_ * -0.55 + ny_ * -0.65 + nz_ * 0.52) / nn_ / 0.52
+    rock = rock * np.clip(0.86 + 0.14 * ndl_, 0.7, 1.18)[..., None]
     peb = R.fbm(xx / 6.0, yy / 4.5, 2, seed=40)
-    lk = 1 + 0.05 * strata + 0.025 * fine + 0.03 * R.fbm(xx / 30.0, yy / 12.0, 2, seed=34) + 0.035 * grain + \
-        0.05 * R.smoothstep(0.35, 0.6, peb) - 0.05 * R.smoothstep(-0.35, -0.6, peb)
-    rock = ROCK * lk[..., None]
+    rock = rock * (1 + 0.04 * R.smoothstep(0.35, 0.6, peb) - 0.04 * R.smoothstep(-0.35, -0.6, peb))[..., None]
     wk = R.smoothstep(WL - 2, WL + 30, sy)[None] * np.ones((H, 1), np.float32)   # 水の中の海底ほど 1
-    # 陸の上の細い砂の帯（水の上の陸だけ）
-    sand = R.hexl('B9C3CB') * (1 + 0.04 * R.fbm(xx / 6.0, yy / 3.0, 2, seed=35))[..., None]
-    sk = R.smoothstep(9.0, 5.0, q) * (1 - wk)
+    # 桂浜の口：明るい砂の帯（水の上の陸だけ）
+    sand = R.hexl('C9D2D9') * (1 + 0.05 * R.fbm(xx / 6.0, yy / 3.0, 2, seed=35))[..., None]
+    sk = R.smoothstep(10.0, 6.0, q) * (1 - wk)
     col = rock * (1 - sk[..., None]) + sand * sk[..., None]
     # 海底の上の面：水の色が少しかかる
     kk = (wk * np.exp(-np.clip(ds, 0, None) / 50.0))[..., None]
     col = col * (1 - 0.30 * kk) + W_TOP * 0.35 * (0.30 * kk)
+    # 棚が海底へ曲がる所（くぼみ）の環境の遮へい：陸のマスクをぼかした量で
+    bl = cv2.GaussianBlur(land, (0, 0), 26.0)
+    ao = np.clip((bl - 0.5) * 2.2, 0, 1) * np.exp(-np.clip(ds, 0, None) / 60.0) * wk
+    col = col * (1 - 0.30 * ao)[..., None]
     # 下ほど濃紺へ（切り口の奥行き）
-    deep = R.smoothstep(30, 520, ds) ** 0.8
+    deep = R.smoothstep(30, 420, ds) ** 0.8
     col = col * (1 - deep[..., None] * 0.86) + R.hexl('0B2238') * (deep[..., None] * 0.86)
     # 上の縁：光の当たった面取り（6px：上から明るく→ふつう）とそのすぐ下のやわらかい影（AO）
     bev = np.exp(-np.clip(ds, 0, None) / 2.4) * (ds > -0.5)
@@ -110,11 +131,20 @@ def static():
     col = col * (1 - 0.18 * np.exp(-np.clip(ds - 5, 0, None) / 14.0) * (ds > 5))[..., None]
     _C['land'], _C['land_a'], _C['sy'], _C['wk'] = col.astype(np.float32), land, sy, wk
     # 線：目盛り（_xsec.background と同じ位置・うすさ）と水面（1.2px・0.40）
-    L = core.SS(s=3)
+    G_ = core.SS(s=3)
     for m in (1000, 2000):
         y = X.y_of(m)
-        L.draw.line(L.p([(225, y), (1010, y)]), fill=L.col(core.FOAM, 0.11), width=L.w(1.2))
+        G_.draw.line(G_.p([(225, y), (1010.0, y)]), fill=G_.col(core.FOAM, 0.11), width=G_.w(1.2))
+    _C['grid'] = G_.done()                       # 目盛り線（2026-11-08 r2：数字の所はフレームごとにぬく）
+    L = core.SS(s=3)
     L.draw.line(L.p([(X.SHORE_X, WL), (W, WL)]), fill=L.col(core.FOAM, 0.40), width=L.w(1.2))
+    # 2026-11-08 r2：桂浜の口の松の点（小さな丸い木の形、冷たい濃い色。陸の上の線に沿って）
+    rngp = np.random.default_rng(77)
+    for px in np.sort(rngp.uniform(8, 178, 22)):
+        gy = float(np.interp(px, np.arange(W) + 0.5, sy)) + 1.0
+        hgt_ = rngp.uniform(4.0, 7.5)
+        wd_ = hgt_ * rngp.uniform(0.75, 1.05)
+        L.draw.ellipse(L.box(px - wd_ / 2, gy - hgt_, px + wd_ / 2, gy + 0.6), fill=L.col(R.srgb(R.hexl('3F5F72')), 0.90))
     _C['lines'] = L.done()
     # ただよう粒
     rng = np.random.default_rng(5)
@@ -127,6 +157,8 @@ def static():
     near = np.exp(-np.clip(yy - sy[None], 0, None) / 7.0) * (yy > sy[None] - 0.5) * (wk > 0.5)
     rows = np.nonzero(near.max(1) > 0.01)[0]
     _C['cband'] = (rows[0], rows[-1] + 1, near[rows[0]:rows[-1] + 1].astype(np.float32))
+    yb_ = np.arange(H, dtype=np.float32)[:, None] * np.ones((1, W), np.float32)
+    _C['crop'] = (0.88 * R.smoothstep(1470.0, 1690.0, yb_) ** 1.2).astype(np.float32)
     return _C
 
 
@@ -143,8 +175,8 @@ def _put_prem(L, prem, a, x0, y0):
     return L
 
 
-def background(t):
-    """断面の背景（sRGB）。t：秒。"""
+def background(t, boxes=None):
+    """断面の背景（sRGB）。t：秒。boxes：目盛り線をぬく文字の箱（世界の座標、2026-11-08 r2）。"""
     C = static()
     out = np.empty((H, W, 3), np.float32)
     sky = C['sky'].copy()
@@ -157,10 +189,13 @@ def background(t):
     yy = np.arange(WL, H, dtype=np.float32)[:, None]
     xx = np.arange(W, dtype=np.float32)[None]
     d = yy - WL
-    uu = (xx - d * 0.55 + t * 7.0) % 4096
-    sh = np.interp(uu.ravel(), np.arange(4096), C['shaft']).reshape(uu.shape)
-    sh = R.smoothstep(0.55, 0.85, sh) * np.exp(-d / 380.0) * R.smoothstep(0, 50, d)
-    wat = wat + R.hexl('A8D6F2') * (sh * 0.10)[..., None]
+    # 2026-11-08 r2：光の筋は体積の柱（幅 40–90px・ガウスの断面・α 4–6%・深いほど消える・0.3px/フレームで流れる）
+    uu = xx - d * 0.55 + t * 9.0
+    sh = np.zeros_like(uu)
+    for (cx_, wd_, a_) in SHAFTS:
+        sh += a_ * np.exp(-0.5 * ((uu - cx_) / (wd_ / 2.355)) ** 2)
+    sh = sh * np.exp(-d / 420.0) * R.smoothstep(0, 40, d)
+    wat = wat + R.hexl('A8D6F2') * sh[..., None]
     out[WL:] = wat
     land = C['land']
     r0, r1, near = C['cband']
@@ -192,6 +227,9 @@ def background(t):
     lay = cv2.GaussianBlur(lay, (0, 0), 1.1) * 6.0
     f = f + (core.FOAM - f) * (lay * 0.25)[..., None]
     f = core.over(f, C['lines'])
+    f = core.over(f, knockout(C['grid'], 0, 0, boxes or [], pad=12))
+    # 2026-11-08 r2：画面の下を濃紺へ（岩と海底は画面の高さの 25% まで：y≈1630 より下は濃紺に沈める）
+    f = f * (1 - C['crop'][..., None]) + R.srgb(R.hexl('0A1E33')) * C['crop'][..., None]
     return np.clip(f, 0, 1).astype(np.float32)
 
 
@@ -222,18 +260,25 @@ def _fuji_static():
     # 雪：2,600m あたりまで。10 本の谷すじの指（先が細い）
     alt = (WL - yy) / X.PXM
     ang = np.arcsin(u)
-    # 雪：2,650m あたりまで。谷すじの指 11 本（尾根に残る雪が下へ細く伸びる。先は細く、ノイズでゆらす）
-    jit = R.fbm(ang * 2.0, np.zeros_like(ang) + 1.7, 3, seed=44) * 0.8
-    ridge = 0.5 + 0.5 * np.cos(ang * 22.0 + 0.4 + jit)
-    ln_ = 0.35 + 0.65 * (R.fbm(ang * 5.0, np.zeros_like(ang) + 5.0, 2, seed=45) * 0.5 + 0.5) ** 1.5
-    fing = ridge ** 6 * ln_
-    line = 3050 - 260 * (R.fbm(ang * 3.0, np.zeros_like(ang) + 9.0, 2, seed=47) * 0.5 + 0.5) - 1150 * fing
-    line = line + R.fbm(xx / 7.0, yy / 7.0, 2, seed=46) * 30
-    snow = R.smoothstep(line - 12, line + 12, alt) * mask
+    # 2026-11-08 r2（美術監督）：雪の帽子を作り直す。下の縁は円すいのまわりの 1D ノイズ（8 つのふくらみ、振幅 高さの 5%）、
+    # 谷すじの雪は先が鋭く下へとがって細くなる三角（流れたしずくに見えない）。
+    lob = 0.6 * np.sin(ang * 8.0 + 0.7) + 0.4 * R.fbm(ang * 3.2, np.zeros_like(ang) + 9.0, 2, seed=47)
+    line = 2700.0 + 190.0 * lob                                         # 3776m の 5% ≈ 190m
+    rngg = np.random.default_rng(48)
+    gu = np.array([-0.80, -0.55, -0.27, -0.10, 0.18, 0.36, 0.62, 0.83]) + rngg.uniform(-0.05, 0.05, 8)
+    gl = np.array([260.0, 720.0, 380.0, 880.0, 300.0, 640.0, 210.0, 520.0]) * rngg.uniform(0.85, 1.15, 8)
+    gw = rngg.uniform(0.03, 0.075, 8)                                   # 付け根の半分の幅（u）
+    line = line + 70.0 * R.fbm(ang * 11.0, np.zeros_like(ang) + 4.0, 2, seed=49)   # 縁の細かいぎざぎざ
+    tri = np.zeros_like(u)
+    for k_ in range(8):
+        dep = np.clip((line - alt) / gl[k_], 0, 1)                     # 雪の縁から下への進み（0..1）
+        wdt = gw[k_] * (1 - dep) ** 1.15
+        tri = np.maximum(tri, R.smoothstep(wdt + 0.006, wdt - 0.006, np.abs(u - gu[k_])) * (alt < line) * (dep < 1))
+    snow = np.maximum(R.smoothstep(line - 10, line + 10, alt), tri) * mask
     # 雪の面の細かい谷（縦の細い陰）
-    gul = 0.55 + 0.45 * np.clip(0.5 - 0.5 * u, 0, 1) ** 0.8          # 左（光の側）が明るい
+    gul = 1.0 - 0.15 * R.smoothstep(-0.15, 0.55, u)                     # 左から光、右の斜面は 15% 暗い
     thick = nzc * half / 202.0                                         # ガラスの厚み（まんなかほど厚い）
-    base = R.smoothstep(WL - 4, WL - 150, yy)                          # すそは霞に溶ける
+    base = R.smoothstep(WL, WL - 0.2 * hp, yy)                         # 2026-11-08 r2：下の 20% で 0 へ（島に見えない）
     ys, xs = np.nonzero(mask > 0.002)
     y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
     cut = lambda a: np.ascontiguousarray(a[y0:y1, x0:x1]).astype(np.float32)
@@ -281,4 +326,34 @@ def knockout(rgba, x0, y0, boxes, pad=6):
     m = cv2.GaussianBlur(m, (0, 0), 1.2)
     out = rgba.copy()
     out[..., 3] = a * m
+    return out
+
+
+def fuji_ticks(f, a):
+    """2026-11-08 r2：富士山の土台の目印（比べるために重ねた輪郭であって、海の中の島ではない）。すその両端の細い縦の目盛り＋細い基線。"""
+    if a <= 0.003:
+        return f
+    if 'ticks' not in _C:
+        hb = 202.0
+        y0 = int(WL) - 16
+        L = core.SS(s=3, w=W, h=24)
+        for sx in (-1, 1):
+            x = X.FUJI_X + sx * hb
+            L.draw.line(L.p([(x, WL - 10 - y0), (x, WL - 1 - y0)]), fill=L.col(core.FOAM, 0.60), width=L.w(1.2))
+        L.draw.line(L.p([(X.FUJI_X - hb, WL - 1.5 - y0), (X.FUJI_X + hb, WL - 1.5 - y0)]),
+                    fill=L.col(core.FOAM, 0.35), width=L.w(1.0))
+        _C['ticks'] = (L.done(), y0)
+    lay, y0 = _C['ticks']
+    out = f.copy()
+    al = lay[..., 3:4] * a
+    out[y0:y0 + lay.shape[0]] = f[y0:y0 + lay.shape[0]] * (1 - al) + lay[..., :3] * al
+    return out
+
+
+def base_fade(rgba, y0):
+    """富士山の輪郭の線の板：下の 20% で 0 へ（ガラスの体と同じ）。"""
+    hp = 3776 * X.PXM
+    yy = np.arange(rgba.shape[0], dtype=np.float32)[:, None] + y0
+    out = rgba.copy()
+    out[..., 3] *= R.smoothstep(WL, WL - 0.2 * hp, yy)
     return out

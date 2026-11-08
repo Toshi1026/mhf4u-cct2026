@@ -23,22 +23,25 @@ HH = H + EXTRA_MAX
 CAM = R.HorizonCam(HZ, f=1660.0, cam_h=3.2)
 SUN = R.sun_vec(-40.0, 40.0)                       # 左上・画面の外
 SUN_SEA = R.sun_vec(-40.0, 13.0)                   # 海のつやだけは低い角度で（左側にだけ光の筋が出る）
-ZEN, HOR = R.hexl('2F6FB0'), R.hexl('BFE0F5')
+ZEN, HOR = R.hexl('2F78B0'), R.hexl('BFE0F5')          # 2026-11-08 r2：天頂の色相 210→206°（画面の上で 約208°）
 HAZE_C = R.hexl('BFDDF2')
 GLOW = R.hexl('EAF6FF')
 XS = np.arange(W, dtype=np.float32) + 0.5
 SHORE = S.shore_y(XS).astype(np.float32)
 Y_SEA1 = int(SHORE.max()) + 16
 Y_SAND0 = int(SHORE.min()) - 2
+DAMP_D = 88.0                                      # しめった砂の幅（波打ち際から、px）
+SWASH = (30.0, 60.0)                               # 寄せる水の膜の高さ（px）
 _C = {}
 
 # 主役の雲（世界の座標、x 中心・y 底・幅）。左の 1/3、見出しより上（カメラが上へ振る分も含めて離す）
-HERO = [(170.0, 238.0, 330, 7, 4), (330.0, 128.0, 220, 12, 3), (6.0, 176.0, 210, 19, 3)]
+HERO = [(170.0, 238.0, 231, 7, 4), (330.0, 128.0, 154, 12, 3), (6.0, 176.0, 147, 19, 3)]   # 2026-11-08 r2：0.7 倍（遠くへ）
+HERO_DEFOCUS = 3.2                                  # σ px（直径 約 7px のぼけ）
 HERO_DRIFT = (0.22, 0.16, 0.19)                     # px/フレーム（右へ。DOT の方へは行かない量）
 # 遠い雲（x 中心・y 底・幅）：地平線に近いほど小さい
 FAR = [(560.0, 1098.0, 150, 31), (812.0, 1112.0, 112, 37), (980.0, 1090.0, 176, 41), (90.0, 1104.0, 130, 43),
        (700.0, 1076.0, 210, 47)]
-FAR_DRIFT = 0.10
+FAR_DRIFT = 0.22                                   # 2026-11-08 r2：0.10 → 0.22 px/フレーム（02 が止まって見えないように）
 
 
 def _sky():
@@ -50,6 +53,8 @@ def _sky():
     # 地平のごく近くのもや（白に近い青、色相はそのまま）
     hz = np.exp(-np.maximum(e, 0) / 0.012)[..., None]
     col = col + (HAZE_C * 1.06 - col) * hz * 0.5
+    # 2026-11-08 r2：水平線の上の空気のもや（3–4% 持ち上げ。海と空の線が空気の中に座る）
+    col = col + (HAZE_C - col) * (0.035 * np.exp(-np.maximum(e, 0) / 0.07))[..., None]
     # 太陽のにじみ：冷たい白を足す（0.12）
     cs = np.clip(dx * SUN[0] + dy * SUN[1] + dz * SUN[2], -1, 1)
     ang = np.arccos(cs)
@@ -72,9 +77,51 @@ def _cirrus():
     return a.astype(np.float32)
 
 
+def worley(xx, yy, cell, seed=0):
+    """2D Worley（F1、セルの大きさ cell px）。0（点の上）..約1。"""
+    rng = np.random.default_rng(seed)
+    gx, gy = np.floor(xx / cell).astype(int), np.floor(yy / cell).astype(int)
+    nxc, nyc = gx.max() + 3, gy.max() + 3
+    jit = rng.uniform(0, 1, (nyc + 2, nxc + 2, 2))
+    d = np.full(xx.shape, 9.0, np.float32)
+    for oy in (-1, 0, 1):
+        for ox in (-1, 0, 1):
+            cx, cy = gx + ox, gy + oy
+            j = jit[np.clip(cy + 1, 0, nyc + 1), np.clip(cx + 1, 0, nxc + 1)]
+            px, py = (cx + j[..., 0]) * cell, (cy + j[..., 1]) * cell
+            d = np.minimum(d, np.hypot(xx - px, yy - py) / cell)
+    return d.astype(np.float32)
+
+
+def cumulus_post(prem, a, seed=0, base=0.86, under_k=0.18, worley_cell=None):
+    """2026-11-08 r2（美術監督）：積雲の仕上げ。平らな底の面で切り、底の側を 15–20% 冷たい灰青へ暗く、
+    細かい毛羽の代わりに 2 つの大きさの Worley（大 1.0・小 0.25）で縁を削る。(prem, a) 線形 premultiplied。"""
+    h, w = a.shape
+    st = prem / np.maximum(a, 1e-4)[..., None]
+    a = cv2.GaussianBlur(a, (0, 0), 0.9)                        # 細かい毛羽をならす
+    st = cv2.GaussianBlur(st, (0, 0), 1.4)
+    st = st * 0.6 + cv2.GaussianBlur(st, (0, 0), max(3.0, w * 0.025)) * 0.4      # 一様に明るい縁を弱める
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    yb = h * base
+    a = a * R.smoothstep(yb + 1.0, yb - 1.0, yy)                 # 平らな底（1 本の面）
+    c1 = worley_cell or max(10.0, w * 0.11)
+    wl = worley(xx, yy, c1, seed + 1)
+    ws = worley(xx, yy, c1 * 0.25, seed + 2)
+    er = 0.65 * wl + 0.35 * ws                                    # 大 1.0・小 0.25 の重ね
+    edge = 1.0 - R.smoothstep(0.35, 1.0, cv2.GaussianBlur(a, (0, 0), max(2.0, w * 0.02)))   # 縁の帯（芯はそのまま）
+    a = np.clip(a - edge * 1.1 * R.smoothstep(0.30, 0.80, er), 0, 1)
+    a = R.smoothstep(0.03, 0.85, a) * a.max()
+    # 底の側：冷たい灰青で 15–20% 暗く（底から 30% の高さまで）
+    uk = R.smoothstep(yb - h * 0.30, yb - h * 0.02, yy) * under_k
+    cool = R.hexl('A9B9CC')
+    st = st * (1 - uk[..., None]) + st * cool * uk[..., None]
+    return (st * a[..., None]).astype(np.float32), a.astype(np.float32)
+
+
 def _cloud(w, seed, towers, flat_k=1.0, detail=1.0):
     h = int(w * 0.62)
     prem, a = C3.cloud_sprite(w, h, seed=seed, towers=towers, flat_k=flat_k, sun_k=2.6, amb_k=0.72, detail=detail)
+    prem, a = cumulus_post(prem, a, seed=seed)
     # 白の上限（≤0.92 sRGB ≒ 線形 0.83）：やわらかく押さえる
     st = prem / np.maximum(a, 1e-4)[..., None]
     l = R.luma(st)
@@ -89,7 +136,14 @@ def static():
         return _C
     _C['sky'] = _sky()
     _C['cirrus'] = _cirrus()
-    _C['hero'] = [_cloud(w, sd, tw) for (_, _, w, sd, tw) in HERO]
+    hero = []
+    for (_, _, w, sd, tw) in HERO:
+        p, a = _cloud(w, sd, tw, detail=0.5)
+        pad = 12
+        p = cv2.GaussianBlur(np.pad(p, ((pad, pad), (pad, pad), (0, 0))), (0, 0), HERO_DEFOCUS)
+        a = cv2.GaussianBlur(np.pad(a, pad), (0, 0), HERO_DEFOCUS)
+        hero.append((p, a))
+    _C['hero'] = hero
     far = []
     for (x, yb, w, sd) in FAR:
         prem, a = _cloud(w, sd, 3, flat_k=0.75, detail=0.6)
@@ -123,10 +177,10 @@ def hero_boxes(gi):
     """主役の雲の世界の座標の箱 [(x0, y0, x1, y1)]（見出しとの距離の確かめ用）。"""
     out = []
     for (x, yb, w, _, _), dv, (p, a) in zip(HERO, HERO_DRIFT, static()['hero']):
-        h = a.shape[0]
-        x0 = x + dv * gi - w / 2
+        h = a.shape[0] - 24
+        x0 = x + dv * gi - w / 2 - 12
         ys, xs = np.nonzero(a > 0.02)
-        out.append((x0 + xs.min(), yb - h * 0.86 + ys.min(), x0 + xs.max(), yb - h * 0.86 + ys.max()))
+        out.append((x0 + xs.min(), yb - h * 0.86 - 12 + ys.min(), x0 + xs.max(), yb - h * 0.86 - 12 + ys.max()))
     return out
 
 
@@ -152,10 +206,13 @@ def _sand():
     tp = 2 * np.pi * u
     slope = (np.cos(tp) + 0.64 * np.cos(2 * tp)) * 2 * np.pi / 2.6
     # 風紋のある所／ない所（40–60% はなめらか）
-    mk = R.smoothstep(-0.20, 0.25, R.fbm(X * 0.45, Z * 0.45, 3, seed=83))
+    mk = R.smoothstep(-0.45, 0.10, R.fbm(X * 0.45, Z * 0.45, 3, seed=83))
     amp = 0.024 * mk
-    # 1px が波長の 1/3 を越える所は消す（2 倍で作ってもちらつかないように）
-    aa = np.clip(1.6 - np.maximum(fz, fx) * ss / (lam * 0.33), 0, 1) ** 1.5
+    # 2026-11-08 r2：風紋を地平の方まで。法線の強さは 1/(1+Z/Z0)（Z0＝もとの切れ目の約 2 倍）、
+    # 細かさはガウスのフィルタ（1 サブ画素の大きさ ÷ 波長）でなめらかに弱める（急に消さない）。
+    fpn = (np.abs(fz) * math.cos(th) + np.abs(fx) * math.sin(th)) / ss       # 波の向きの 1 サブ画素の大きさ
+    aa = np.exp(-2.0 * (math.pi * fpn / lam) ** 2) * (1.0 / (1.0 + Z / 26.0)) * 1.25
+    aa = np.clip(aa, 0, 1)
     g = slope * amp / lam * aa
     gx, gz = g * math.sin(th), g * math.cos(th)
     # 大きなゆるい起伏（足あとのないなだらかな浜）
@@ -168,6 +225,12 @@ def _sand():
     flat = float(SUN[1])
     shade = np.clip(ndl / flat, 0.2, 1.8)
     col = base * (0.62 + 0.38 * shade)[..., None]
+    # 遠い所：細かい風紋が消えていく代わりに、波長 4 倍の明るさの帯（輝度 3.5%、同じフィルタ）へ受けわたす
+    lam2 = lam * 4.0
+    ph2 = (Z * math.cos(th) + X * math.sin(th)) / lam2 + warp * 0.5
+    band = np.cos(2 * np.pi * ph2) * np.exp(-2.0 * (math.pi * fpn / lam2) ** 2)
+    far_k = (1 - np.clip(aa / 0.6, 0, 1)) * (0.4 + 0.6 * mk)
+    col = col * (1 + 0.035 * band * far_k)[..., None]
     # 風紋の頂の小さなつや（太陽の側の面）
     crest = np.clip(shade - 1.05, 0, None) * aa * mk
     col = col + R.hexl('F2F6F8') * (crest * 0.06)[..., None]
@@ -204,24 +267,22 @@ def _sand():
     sm = sm * (1 - 0.22 * sh * (1 - np.maximum(sb, sd)))[..., None]
     sm = sm * (1 - sb[..., None] * 0.8) + R.hexl('E6EAEC') * sb[..., None] * 0.8
     sm = sm * (1 - sd[..., None] * 0.8) + R.hexl('9AA5AF') * sd[..., None] * 0.8
-    # ぬれた帯：波打ち際から 60–90px、L −18%、空を映す。乾いた所との境はノイズでやわらかく
-    dep = 75 + 15 * R.fbm(XS / 140.0, np.zeros_like(XS) + 2.0, 3, seed=86)
+    # 2026-11-08 r2（美術監督）：灰色の帯・ぼけた影の境をやめて 3 層に。
+    # (b) しめった砂：アルベド ×0.78 に 8–12% の値のむら。(c) 乾いた砂との境はドメインワープ（振幅 10–14px）、ぼかしの帯なし。
+    # (a) 寄せる水の膜（30–60px、フレネルの空の映り込み・泡のレース）は world() で時間とともに描く。
     dsh = ys0 - SHORE[None]
-    bnd = dep[None] * (1 + 0.025 * R.fbm(XS[None] / 30.0, np.zeros((1, 1), np.float32) + 4.0, 3, seed=87))
-    # 2026-11-08 最終確認：境目を ±1.5px → やわらかい「しめった帯」（乾くにつれて暗さが抜ける）に。
-    # 水ぎわは空を強く映すつや（平らな灰色の帯に見えないように）、乾いた側へ映り込みが急に減る。
-    wet = R.smoothstep(bnd + 7.0, bnd - 5.0, dsh) * (dsh >= 0)
-    damp = R.smoothstep(bnd + 34.0, bnd - 2.0, dsh) * (dsh >= 0) * (1 - wet)
+    xw = XS[None] + 9.0 * R.fbm(XS[None] / 70.0, ys0 / 40.0, 2, seed=91)
+    yw = 12.0 * R.fbm(xw / 95.0, ys0 / 55.0 + 3.0, 3, seed=92) + 2.0 * R.fbm(xw / 34.0, ys0 / 20.0, 2, seed=93)
+    edge = DAMP_D + 10.0 * R.fbm(XS[None] / 260.0, np.zeros((1, 1), np.float32) + 6.0, 2, seed=86)
+    damp = R.smoothstep(0.75, -0.75, dsh + yw - edge) * (dsh >= -2)
+    vn = R.fbm(XS[None] / 9.0, ys0 / 4.0, 3, seed=94) * 0.5 + R.fbm(XS[None] / 40.0, ys0 / 14.0, 2, seed=95) * 0.5
+    dcol = sm * (0.78 * (1 + 0.10 * vn))[..., None]
+    # 水ぎわのすぐ上はまだ少しつや（空をうすく映す、5% まで）
     dx, dy, dz = CAM.dirs(ys0 * np.ones((1, W), np.float32), XS[None] * np.ones((rows, 1), np.float32))
     refl = R.lin(np.clip(R.srgb(_C_sky_row(-dy)), 0, 1))
-    # ぬれた砂：暗く（L −18%）、水ぎわほど空を鏡のように映す（横に流れる水の膜のむら）
-    streak = R.fbm(XS[None] / 160.0, ys0 / 4.0, 3, seed=90) * 0.5 + 0.5
-    fr = 0.56 * np.exp(-dsh / 50.0) * (0.35 + 0.65 * streak) + 0.12
-    # 太陽の側（左）の水の膜のつや（ごく弱い、横に長い）
-    gls = R.smoothstep(820.0, 80.0, XS)[None] * np.exp(-dsh / 30.0) * (0.5 + 0.5 * streak)
-    sm_w = sm * 0.70 * (1 - fr[..., None]) + refl * 0.90 * fr[..., None] + R.hexl('EAF6FF') * (0.10 * gls)[..., None]
-    sm = sm * (1 - damp[..., None] * 0.07)
-    sm = sm * (1 - wet[..., None]) + sm_w * wet[..., None]
+    gl = 0.05 * np.exp(-np.clip(dsh, 0, None) / 40.0)
+    dcol = dcol * (1 - gl[..., None]) + refl * gl[..., None]
+    sm = sm * (1 - damp[..., None]) + dcol * damp[..., None]
     return sm.astype(np.float32)
 
 
@@ -268,6 +329,10 @@ def _sea(t):
     near = R.smoothstep(HZ + 2, HZ + 40, yy) * R.smoothstep(SHORE.mean() + 5, SHORE.mean() - 60, yy)
     gl = R.smoothstep(0.52, 0.80, hgt) * side * near
     sea = sea + R.SUN_RGB * (gl * 0.22)[..., None]
+    # 2026-11-08 r2：波の頂のつやのまたたき（時間で動く細かいむら × 波の高さ。ちらつかないよう弱く・ゆっくり）
+    tw = R.fbm(XS[None] / 14.0 + t * 0.9, yy / 3.0 - t * 0.6, 2, seed=58) * 0.5 + 0.5
+    sh = R.smoothstep(0.60, 0.85, hgt) * R.smoothstep(0.55, 0.80, tw) * near * (0.35 + 0.65 * side)
+    sea = sea + R.SUN_RGB * (sh * 0.10)[..., None]
     # 水平線のごく細い明るい線（にじませない）
     sea[:2] = sea[:2] * 0.6 + HAZE_C * 0.4
     return sea
@@ -293,8 +358,8 @@ def world(gi, extra=0):
         L = _put_prem(L, p, a, x + FAR_DRIFT * gi - w / 2, yb - h * 0.86)
     # 主役の雲
     for (x, yb, w, _, _), dv, (p, a) in zip(HERO, HERO_DRIFT, C['hero']):
-        h = a.shape[0]
-        L = _put_prem(L, p, a, x + dv * gi - w / 2, yb - h * 0.86)
+        h = a.shape[0] - 24
+        L = _put_prem(L, p, a, x + dv * gi - w / 2 - 12, yb - h * 0.86 - 12)
     # 海
     sea = _sea(t)
     L[HZ:Y_SEA1] = sea[:min(Y_SEA1, Hh) - HZ]
@@ -304,33 +369,52 @@ def world(gi, extra=0):
     L[HZ:Y_SEA1] = reg * (1 - foam[..., None] * 0.80) + R.hexl('E9F1F6') * (foam[..., None] * 0.80)
     sand = C['sand'][:Hh - Y_SAND0]
     ys = np.arange(Y_SAND0, Hh, dtype=np.float32)[:, None] + 0.5
-    ph = 0.5 + 0.5 * math.sin(t * 1.6)
-    film_edge = SHORE[None] + 2.0 + 5.0 * ph + 1.2 * np.sin(XS[None] / 37.0 + t * 2.2)
-    m = np.clip(ys - film_edge + 0.5, 0, 1)
     below = (ys >= SHORE[None]).astype(np.float32)
-    film = np.clip(1 - (ys - SHORE[None]) / 14.0, 0, 1) * (1 - m) * below
     reg = L[Y_SAND0:Hh]
-    new = sand * m[..., None] + reg * (1 - m[..., None])
-    new = new * below[..., None] + reg * (1 - below[..., None])
-    new = new + (R.hexl('CFE3F1') - new) * (film[..., None] * 0.45)
-    # 寄せた水の膜の先の細い泡のレース
-    lace = np.exp(-((ys - film_edge) / 1.3) ** 2) * (0.55 + 0.45 * (R.fbm(XS[None] / 9.0, ys / 3.0 + t * 0.6, 2,
-                                                                         seed=88) * 0.5 + 0.5))
-    lace = lace * R.smoothstep(0.35, 0.6, R.fbm(XS[None] / 23.0 + t * 0.2, ys / 6.0, 2, seed=89) * 0.5 + 0.5)
-    new = new + (R.hexl('EEF4F8') - new) * (lace * 0.55 * below)[..., None]
+    new = sand * below[..., None] + reg * (1 - below[..., None])
+    # 2026-11-08 r2：(a) 寄せる水の膜（30–60px）。フレネルで空を映し（F0 0.02 → 浅い角度で 0.30）、空の色を 35% 混ぜ、
+    # 先に細い泡のレース（fbm 2 オクターブ・0.015/px・しきい値 0.55・0.4px/フレームで流れる）。
+    r0, r1 = int(SHORE.min()) - Y_SAND0, min(int(SHORE.max() + SWASH[1] + 14) - Y_SAND0, Hh - Y_SAND0)
+    yb = ys[r0:r1]
+    ph = 0.5 + 0.5 * math.sin(t * 1.6)
+    sw = SWASH[0] + (SWASH[1] - SWASH[0]) * (0.25 + 0.75 * ph) * (0.75 + 0.25 * (R.fbm(XS / 180.0 + t * 0.05,
+                                                                                         np.zeros_like(XS) + 1.0, 2,
+                                                                                         seed=96) * 0.5 + 0.5))
+    edge = SHORE + sw[None] * 1.0 + 3.0 * np.sin(XS[None] / 37.0 + t * 2.2)
+    film_a = np.clip(edge - yb + 0.5, 0, 1) * (yb >= SHORE[None])
+    dx, dy, dz = CAM.dirs(yb * np.ones((1, W), np.float32), XS[None] * np.ones((r1 - r0, 1), np.float32))
+    cos_i = np.clip(-dy, 0, 1)                                      # 下向きの視線と水面の法線の角度
+    F = np.clip(0.02 + 0.98 * (1 - cos_i) ** 5, 0.02, 0.30)
+    sky_r = _sky_fn(dx, -dy, dz)
+    under = new[r0:r1]
+    thin = R.smoothstep(0.0, 1.0, (edge - yb) / np.maximum(sw[None], 1))   # 先ほど薄い
+    film = under * (1 - 0.35 * thin[..., None]) + sky_r * (0.35 * thin[..., None])
+    film = film * (1 - F[..., None]) + sky_r * F[..., None]
+    # 先のレース
+    lx = XS[None] * 0.015 + 0.4 * 0.015 * gi
+    ln = R.fbm(lx, yb * 0.015 * 3.0 + t * 0.1, 2, seed=97) * 0.5 + 0.5
+    fine = R.fbm(XS[None] / 5.0 + gi * 0.4 / 5.0, yb / 2.2, 2, seed=98) * 0.5 + 0.5      # 泡の網目
+    thk = 1.0 + 1.6 * (R.fbm(XS[None] / 23.0 + gi * 0.02, np.zeros((1, 1), np.float32) + 2.0, 2, seed=99) * 0.5 + 0.5)
+    lace = R.smoothstep(0.50, 0.62, ln) * np.exp(-((yb - edge + 1.5) / thk) ** 2) * (0.45 + 0.55 * fine)
+    lace += 0.45 * R.smoothstep(0.58, 0.72, fine) * R.smoothstep(-1.0, -4.0, yb - edge) * \
+        R.smoothstep(-14.0, -5.0, yb - edge) * R.smoothstep(0.40, 0.62, ln)
+    lace = np.clip(lace, 0, 1) * 0.70
+    film = film + (R.hexl('E8F0F5') - film) * lace[..., None]
+    fa = np.clip(film_a + lace * (yb >= SHORE[None]), 0, 1)[..., None]
+    new[r0:r1] = under * (1 - fa) + film * fa
     L[Y_SAND0:Hh] = new
     return R.srgb(L)
 
 
 def screen_post(f, hitstop=0.0, horizon_y=None):
-    """カメラのあと：下 20% を 12% 暗く＋σ2 のぼけ。hitstop>0 のあいだ水平線から上を σ1.5 でぼかす。"""
-    y0 = int(H * 0.8)
+    """カメラのあと：下 12% にごく弱い手前のぼけ（σ1）。hitstop>0 のあいだ水平線から上を σ1.5 でぼかす。
+    2026-11-08 r2：下 20% を暗くする帯はやめた（美術監督：灰色の帯・霧に見える）。"""
+    y0 = int(H * 0.88)
     ramp = np.clip((np.arange(H - y0, dtype=np.float32) + 0.5) / (H - y0), 0, 1)[:, None, None]
     sub = f[y0:]
-    bl = cv2.GaussianBlur(sub, (0, 0), 2.0)
-    k = R.smoothstep(0.0, 0.6, ramp)
-    sub = sub * (1 - k) + bl * k
-    f[y0:] = sub * (1 - 0.12 * R.smoothstep(0.0, 0.5, ramp))
+    bl = cv2.GaussianBlur(sub, (0, 0), 1.0)
+    k = R.smoothstep(0.0, 0.8, ramp)
+    f[y0:] = sub * (1 - k) + bl * k
     if hitstop > 0 and horizon_y is not None:
         yh = int(min(max(horizon_y + 8, 0), H))
         if yh > 0:

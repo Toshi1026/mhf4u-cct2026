@@ -20,6 +20,8 @@
 2026-11-08 見た目：舞台は _xsec3d（ジオラマの切り口・水の光の筋・ゆっくりのコースティクス・ガラスの富士山と雪の指）。
 富士山の輪郭の線と未来の点線は、目盛りのラベルの所を 6px ぬく（label_boxes）。悪役は villain_v2 を 1 回描いてぶらす。
 仕上げ（finish_ad、ゆがみなし）はカメラのあと、ラベル・文字はその後（ぶれ・ゆれの外）。
+2026-11-08 r2：線を減らす（見上げる弦・縦の点線をやめ、この先の弧は 25%）。目盛りの数字は自分の線の高さのまんなかに置き、
+線は数字の所でぬく。富士山は下の 20% で消えて土台に目盛り（重ねた比べる輪郭）。入りの whip は 05 と同じ向き（上から下へ、ぶれ 55）。
 """
 import math
 
@@ -37,6 +39,7 @@ from cutB.beats import _xsec3d as X3, _figures3d as F3, _render as R
 ENTRY, ENTRY_DIM = 12, 0.36
 WHIP_IN = 6
 PIV1 = (700.0, 760.0)
+GHOST = 0.25             # 2026-11-08 r2：この先の点線（下りの弧）は 25% に
 
 
 def timing(beat):
@@ -126,15 +129,16 @@ def put_counter(f, i, T, alpha=1.0, extra_dy=0.0, blur=0.0):
 def put_labels(f, i, T, Mc, labels_a=1.0, fuji_a=None, apex_a=None, fuji_i=None):
     """世界の点に付くラベル（大きさは変えず、位置だけカメラで動かしてセーフゾーンに収める）。"""
     lab = X.labels()
-    for key, (x, y) in (('grid', (1010.0, X.y_of(1000) - 10)), ('kat', (X.X0 - 10, WL + 62))):
+    for key, (x, y) in (('g1', (1010.0, X.y_of(1000) + X.LAB_DY)), ('g2', (1010.0, X.y_of(2000) + X.LAB_DY)),
+                        ('kat', (X.X0 - 10, WL + 62))):
         p = lab[key]
         # 「桂浜」は中央ぞろえ（幅 約74px）なので、左の余白は半分の幅＋少し（寄りで左へ押し出されてもセーフゾーンの外に出ない）
         px, py = project(Mc, x, y, margin=(45 if key == 'kat' else 0, 30, 0, 0))
-        if key == 'grid':
+        if key in ('g1', 'g2'):
             px = min(px, 1010.0)
         f = p.put(f, labels_a, dx=px - x, dy=py - y)      # 2,000m も grid の板に入っている（1,000m の点で動かす）
     if apex_a is not None and apex_a > 0.003:
-        ax, ay = 1010.0, X.APEX[1] - 12
+        ax, ay = 1010.0, X.APEX[1] + X.APEX_DY
         px, py = project(Mc, ax, ay)
         f = lab['apex'].put(f, apex_a, dx=min(px, 1010.0) - ax, dy=py - ay)
     fa = 0.0 if fuji_a is None else fuji_a
@@ -148,24 +152,25 @@ def put_labels(f, i, T, Mc, labels_a=1.0, fuji_a=None, apex_a=None, fuji_i=None)
 
 
 # ---------------------------------------------------------------- 世界の線
-def apex_lines(f, a, phase=0.0):
-    """頂点から右への点線（FOAM 0.75）と、水面までの高さの点線。"""
+def apex_lines(f, a, phase=0.0, boxes=None):
+    """頂点から右への点線（FOAM 0.75）。2026-11-08 r2：水面までの縦の点線はやめた（線を減らす）。線は数字の手前で止める。"""
     if a <= 0.003:
         return f
     ax, ay = X.APEX
     y0 = int(ay) - 4
     L = core.SS(s=2, w=W, h=int(WL) + 4 - y0)
     k = M.ease(a, 'cubic_out')
-    A.dashed(L, [(ax + 14, ay - y0), (ax + 14 + (1010 - ax - 14) * k, ay - y0)], L.col(core.FOAM, 0.75), L.w(2.0),
-             dash=8, gap=7, phase=phase)
-    A.dashed(L, [(ax, ay + 16 - y0), (ax, ay + 16 + (WL - ay - 16) * k - y0)], L.col(core.FOAM, 0.38), L.w(1.6),
-             dash=6, gap=8, phase=phase)
-    return U.paste(f, L.done(), 0, y0)
+    A.dashed(L, [(ax + 14, ay - y0), (ax + 14 + (X.APEX_X1 - ax - 14) * k, ay - y0)], L.col(core.FOAM, 0.75),
+             L.w(2.0), dash=8, gap=7, phase=phase)
+    return U.paste(f, X3.knockout(L.done(), 0, y0, boxes or [], pad=12), 0, y0)
+
+
+SIGHT_LINE = False        # 2026-11-08 r2：見上げる点線（弦）はやめた（美術監督：線が多い）
 
 
 def sight_line(f, a, phase=0.0):
-    """桂浜から頂点を見上げる点線（点は上へ流れる）。"""
-    if a <= 0.003:
+    """桂浜から頂点を見上げる点線（点は上へ流れる）。SIGHT_LINE が False のあいだは描かない。"""
+    if a <= 0.003 or not SIGHT_LINE:
         return f
     ax, ay = X.APEX
     p0 = np.array([X.X0 + 6, WL - 10.0])
@@ -203,10 +208,11 @@ def label_boxes(i, T, Mc):
             y0, y1 = p.y0 + dy + g.min(), p.y0 + dy + g.max()
             P = np.array([[x0, y0, 1], [x1, y1, 1]]) @ Ai.T
             out.append((P[0, 0], P[0, 1], P[1, 0], P[1, 1]))
-    x, y = 1010.0, X.y_of(1000) - 10
-    px, py = project(Mc, x, y, margin=(0, 30, 0, 0))
-    add(lab['grid'], min(px, 1010.0) - x, py - y)
-    ax, ay = 1010.0, X.APEX[1] - 12
+    for key, m in (('g1', 1000), ('g2', 2000)):
+        x, y = 1010.0, X.y_of(m) + X.LAB_DY
+        px, py = project(Mc, x, y, margin=(0, 30, 0, 0))
+        add(lab[key], min(px, 1010.0) - x, py - y)
+    ax, ay = 1010.0, X.APEX[1] + X.APEX_DY
     px, py = project(Mc, ax, ay)
     add(lab['apex'], min(px, 1010.0) - ax, py - ay)
     return out
@@ -215,15 +221,16 @@ def label_boxes(i, T, Mc):
 def scene(i, T, f=None, fuji_a=None, fuji=None, boxes=None):
     """06 の世界の背景（ジオラマの空と水・桂浜・ガラスの富士山）。ラベルは put_labels（カメラのあと）。fuji=(stroke, fill) で上書き、
     fuji_a で全体の濃さ（07 が消すとき）。boxes：富士山の輪郭の線をぬく文字の箱（世界の座標）。"""
-    f = X3.background(i / core.FPS) if f is None else f
+    f = X3.background(i / core.FPS, boxes) if f is None else f
     st, fl = fuji_state(i, T) if fuji is None else fuji
     if fuji_a is not None:
         fl *= fuji_a
     if st > 0.003 and (fuji_a is None or fuji_a > 0.003):
         f = X3.fuji(fl, f)
         rgba, x0, y0 = X.fuji_layer2(st, 0.0)
-        rgba = X3.knockout(rgba, x0, y0, boxes or [])
+        rgba = X3.knockout(X3.base_fade(rgba, y0), x0, y0, boxes or [])
         f = U.paste(f, rgba, x0, y0, 1.0 if fuji_a is None else fuji_a)
+        f = X3.fuji_ticks(f, min(1.0, st * 1.5) * (1.0 if fuji_a is None else fuji_a))
     return f
 
 
@@ -289,11 +296,11 @@ def render(beat, ctx):
         f = scene(i, T, boxes=bx)
         u = villain_u(i, T)
         # 放物線（この先はうすい点線、通った所は実線）
-        rgba, x0, y0 = X.trail_layer(u, ghost=M.ease((i + 1) / 10.0, 'sine_inout'))
+        rgba, x0, y0 = X.trail_layer(u, ghost=GHOST * M.ease((i + 1) / 10.0, 'sine_inout'))
         f = U.paste(f, X3.knockout(rgba, x0, y0, bx), x0, y0)
         # 頂点の印
         a_ap = float(np.clip((i - T['ru'] + 6) / 10.0, 0, 1))
-        f = apex_lines(f, a_ap)
+        f = apex_lines(f, a_ap, boxes=bx)
         f = sight_line(f, float(np.clip((i - T['shi'] + 1) / 12.0, 0, 1)) * (1 - 0.5 * M.ease((i - T['ki']) / 12.0)),
                        phase=-0.8 * i)
         f = put_villain(f, i, T)
@@ -311,11 +318,11 @@ def render(beat, ctx):
         if i < WHIP_IN:
             # 入り：05 の上への whip を受ける。ラベル・文字はぶらさず、同じずれで上がりながら出る（美術監督の規則）
             q = i / float(WHIP_IN)
-            f = M.whip(f, q, axis=0, sign=-1, px=300.0, blur=110.0, direction='in')
+            f = M.whip(f, q, axis=0, sign=1, px=300.0, blur=55.0, direction='in')     # r2：05 と同じ上への whip-tilt
             t0 = hud(np.zeros_like(f))
             ta = np.clip(1 - (hud(np.ones_like(f)) - t0), 0, 1)
             e = M.ease(q, 'expo_out')
-            Md = np.float32([[1, 0, 0], [0, 1, 300.0 * (1 - e)]])
+            Md = np.float32([[1, 0, 0], [0, 1, -300.0 * (1 - e)]])
             ta = cv2.warpAffine(ta, Md, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
             t0 = cv2.warpAffine(t0, Md, (W, H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
             k_ = e ** 2

@@ -15,6 +15,11 @@
 2026-11-08 絵の作り直し（美術監督の look-dev v2）：線画の地図 → 国土地理院の標高タイルの陰影起伏＋プラン・オブリークの
   立体（_maplook）。カメラ・弧・点・文字・タイミングはそのまま。弧は 0.9 の白い破線に、地面へ落ちるやわらかい影（0.25）。
   沖の等距離線はなし（海は岸からの距離の連続した色だけ）。仕上げは R.finish_ad（文字・弧・海岸線の前）。出典を右下に。
+2026-11-08 美術監督のレビュー（03 7/10）の直し：平野に低い起伏の陰影（0–60m を ×4）・平野と山を 20–120m でなめらかに・
+  田畑と町の 2–3% のむら・灰色がかった青緑（海より明るく、水に見えない）・仁淀川を 1px の線（_maplook）。着いた点は白い
+  直径 12px の実心の点が「キ」（10 に決まる所）で 6 フレーム 1.15 倍へぽんと出て、左に小さな白い「MAZE」（強調色なし）。
+  縮尺の後ろに 0.60 の紺の角丸の板。奥の山はティルトシフトのぼかしを 2.6px に。出典は 03・04・T で同じ下のベースライン
+  （ML.CREDIT_Y、IG のセーフゾーンの下端）、見出しを上げて 48px 以上あける。
 """
 import numpy as np
 
@@ -26,7 +31,7 @@ from beats import _mapui as U
 from beats import _geo as G
 from cutB.beats import _bmap as B, _motion as M, _maplook as ML, _render as R
 
-Y_SUB, Y_BIG = 1046, 1178
+Y_SUB, Y_BIG = 1030, 1160          # 2026-11-08：出典（ML.CREDIT_Y、決まった下のベースライン）との間を 48px 以上に
 KM = '10'
 DOT = (868.0, 338.0)          # 02 の押し込みの中心（ズームのつなぎの点）
 ZIN = 8                       # 02 からのズームの続き（フレーム）
@@ -72,7 +77,8 @@ def land_r(t):
     k = t - T['g1']
     if k < 0:
         return 5.0
-    return M.Track([(0, 5.0, 'expo_out'), (2, 10.0, 'sine_inout'), (6, 6.0)]).at(k)
+    # 2026-11-08：着いた点は白い直径 12px（半径 6）。6 フレームで 1.15 倍へぽんとふくらんで 1.0 に戻る
+    return M.Track([(0, 5.0, 'expo_out'), (3, 6.0 * 1.15, 'sine_inout'), (6, 6.0)]).at(k)
 
 
 def overlay_static(f, t, alpha=1.0, track_u=1.0, head=False, dot_a=1.0, label_a=1.0, dot_s=1.0, label=None,
@@ -120,10 +126,10 @@ def _klabel():
     return _KL[0]
 
 
-def map_frame(t, a_map=1.0, haze=0.16, tilt=1.6, coast_a=0.40):
+def map_frame(t, a_map=1.0, haze=0.16, tilt=2.6, coast_a=0.40):
     """地図（陰影起伏の立体の地図＋海岸線、文字・弧なし。sRGB float32）。a_map は互換のため（1 のみ）。"""
     ctr, z = B.cam(t)
-    f, _ = ML.map_layer(t, ctr, z, haze=haze, tilt=tilt, coast_a=coast_a)
+    f, _ = ML.map_layer(t, ctr, z, haze=haze, tilt=tilt, coast_a=coast_a, river_a=0.45)
     return f
 
 
@@ -140,6 +146,61 @@ def texts():
     sub = M.KText([dict(text='桂浜から', x=W / 2, y=Y_SUB, size=46, weight='Medium', track=0.08)])
     cnt = M.Odometer(KM, W / 2, Y_BIG, digit_size=108, side_size=96, prefix='', suffix='km先へ', hl_suffix='km')
     return sub, cnt
+
+
+_ML = []
+
+
+def _maze_label():
+    if not _ML:
+        _ML.append(U.Patch([dict(text='MAZE', x=540, y=1000, size=28, weight='Medium', anchor='rs', track=0.10,
+                                 shadow=0.7)]))
+    return _ML[0]
+
+
+def landing(f, t, alpha=1.0, label_a=1.0):
+    """着いた点（白い実心の点、半径 land_r）と小さな「MAZE」のラベル（点の左）。強調色は使わない（10km が強調）。"""
+    T = _timing03()
+    if t < T['g1'] or alpha <= 0.002:
+        return f
+    ctr, z = B.cam(t)
+    _, A = B.arc_pts(ctr, z, 1.0, n=160)
+    x, y = A[-1]
+    L = G.Lines()
+    L.dot(x, y, land_r(t), 255 * alpha)
+    m = L.done()
+    f = ML.drop_shadow(f, m, 1.5, 2.5, 2.0, 0.45 * alpha)
+    f = f * (1 - m[..., None]) + np.asarray(core.FOAM, np.float32) * m[..., None]
+    la = label_a * alpha * M.ease((t - T['g1'] - 1) / 6.0, 'sine_inout')
+    if la > 0.002:
+        f = _maze_label().put(f, la, dx=x - 16 - 540, dy=y + 10 - 1000)
+    return f
+
+
+def scale_pill(f, z, alpha=1.0, x1=1000.0, y=372.0):
+    """縮尺の後ろの紺の板（0.60、角丸）。海岸線の線と重なっても読めるように。"""
+    if alpha <= 0.002:
+        return f
+    import math as _m
+    from beats import _tosa
+    L5 = 5 * _tosa.PX_KM * z
+    w2 = float(np.clip((L5 - 230.0) / 70.0, 0, 1))
+    w2 = w2 * w2 * (3 - 2 * w2)
+    ln = L5 * (1 - w2) + 2 * _tosa.PX_KM * z * w2           # 縮尺の切り替えと同じ重みで板の幅も
+    ln = max(ln, 64.0)                                       # 「5km」の字が板からはみ出さない幅
+    x0 = x1 - ln
+    bx0, by0 = int(_m.floor(x0 - 24)), int(y - 56)
+    bw, bh = int(_m.ceil(x1 + 24)) - bx0, 76
+    S = core.SS(s=3, w=bw, h=bh)
+    S.draw.rounded_rectangle(S.box(x0 - 20 - bx0, 4, x1 + 20 - bx0, 72), radius=3 * 24, fill=(255, 255, 255, 255))
+    a = S.done()[..., 3] * (0.60 * alpha)
+    X0, X1 = max(bx0, 0), min(bx0 + bw, core.W)
+    if X1 <= X0:
+        return f
+    c = np.asarray(core.c('0A1D33'), np.float32)
+    sub = f[by0:by0 + bh, X0:X1]
+    sub += (c - sub) * a[:, X0 - bx0:X1 - bx0, None]
+    return f
 
 
 def counter_v(t):
@@ -167,12 +228,14 @@ def render(beat, ctx):
                            label=label, tail=0.08 if i < g1 else 0.0)
         ctr, z = B.cam(i)
         if i >= ZIN:
+            f = scale_pill(f, z)
             f = B.scale_bar(f, z, alpha=0.9)
         # 文字の後ろをわずかに暗く（読みやすさ）
         lab_a = M.ease((i - f_ka + 2) / 6.0, 'sine_inout')
         sa = 0.42 * lab_a
         if sa > 0:
             f = U.scrim(f, Y_SUB - 60, Y_BIG + 10, strength=sa, feather=150)
+        f = landing(f, i)                              # 文字の後ろの暗がりの後（点と MAZE を白のまま）
         f = sub.reveal(f, i, f_ka - 2, 'char_rise')
         if u > 0.06:
             v = counter_v(i)
@@ -181,6 +244,8 @@ def render(beat, ctx):
         # 02 からのズームの続き
         if i < ZIN:
             f = M.zoom_through(f, i / float(ZIN), DOT, 'in', s_in=(1.6, 1.0), blur=0.22, steps=20 if i < 3 else 12)
-            f = B.scale_bar(f, z, alpha=0.9 * M.ease((i + 1) / float(ZIN), 'sine_inout'))   # 縮尺は画面に固定（ズームに乗せない）
+            sa_ = M.ease((i + 1) / float(ZIN), 'sine_inout')
+            f = scale_pill(f, z, sa_)
+            f = B.scale_bar(f, z, alpha=0.9 * sa_)   # 縮尺は画面に固定（ズームに乗せない）
         f = ML.credit(f)
         yield np.clip(f, 0, 1).astype(np.float32)

@@ -20,6 +20,10 @@
   明るさ 35% まで落とし、メーターの後ろだけ #1C3A5A へやわらかく持ち上げる（嵐の雲に見えるむらを消す）。
   弧（破線）と海岸線は 0.25 のうすい線で残す。メーターはガラスの文字盤＋クロームの縁（_dial.Dial）。
   組み上がり・針のばね・押し込み・消え方のタイミングは同じ。仕上げは R.finish_ad（文字の前）。出典を右下に。
+2026-11-08 美術監督のレビュー（04 6.5/10）の直し：出典は決まった下のベースライン（ML.CREDIT_Y）、見出し・下の行・出典の間を
+  48px 以上（メーターと文字をそのぶん上へ）。針の残像 3 本 → 1 枚のくさび（シャッター 180°、0.6→0）。ガラスの映り込みは
+  縁の弧に沿ったくっきりした 2 本（8%・1.5px、3%・6px）＋上の縁のフレネルの線。「旅客機」の字のラベル → 900 の目盛りの先の
+  小さな旅客機の形。後ろの海岸線と弧は前の半分の濃さ。
 """
 import math
 
@@ -36,12 +40,12 @@ from cutB.beats import _bmap as B, b03, _motion as M
 from cutB.beats._m34 import Board, blend_mask
 from cutB.beats import _maplook as ML, _render as RR, _dial
 
-MC = (540.0, 952.0)                 # メーターの中心（半円の底）
+MC = (540.0, 916.0)                 # メーターの中心（半円の底）。2026-11-08：出典・字との間を 48px 以上あけるため 36px 上へ
 R = 340.0
 VMAX, V = 1500, 1130
 JET = 900.0                         # ジェット旅客機の巡航（約900 km/h）
 DIM = 0.40
-Y_MAIN, Y_NOTE = 1112, 1196
+Y_MAIN, Y_NOTE = 1058, 1164          # 2026-11-08：出典（ML.CREDIT_Y）との間 48px 以上、見出しと下の行の間も 48px 以上
 LIVE = 10                           # このフレームまでは地図を毎フレーム描く（暗くなりきるまで）
 _yy, _xx = np.mgrid[0:H, 0:W].astype(np.float32)
 _r = np.hypot((_xx - MC[0]) / 470, (_yy - (MC[1] - 60)) / 380)
@@ -197,7 +201,7 @@ def dial():
     return _D[0]
 
 
-def meter_group(value, i, T, ghosts=(), snd=0.0, excess=0.0):
+def meter_group(value, i, T, ghosts=(), snd=0.0, excess=0.0, smear=None):
     """メーター（ガラスとクローム）＋目盛りの数字＋「旅客機」を1枚の板に。組み上がりの進みは前の版と同じ。"""
     b0 = T['b0']
     ap = M.ease((i - b0) / 12.0, 'expo_out')
@@ -206,16 +210,13 @@ def meter_group(value, i, T, ghosts=(), snd=0.0, excess=0.0):
     ln = 24 + 10 * M.ease((i - T['o'] + 1) / 7.0, 'back_out')
     cs = M.ease((i - (b0 + 2)) / 8.0, 'back_out')
     Bd = dial().frame(value, ap=ap, prog=prog, cs=cs, ghosts=ghosts, excess=excess, jet=JET, jet_len=ln,
-                      jet_a=0.55 + 0.45 * snd, jet_p=pj)
+                      jet_a=0.55 + 0.45 * snd, jet_p=pj, smear=smear, jet_glyph=True)
     LB = _label_boards()
     for k, lb in LB['labels']:
         p = M.ease((i - (b0 + 1) - 0.35 * k - 2) / 7.0, 'cubic_out')
         if p > 0.01:
             Bd.over(lb, alpha=p, dy=6 * (1 - p))
-    k = 18
-    p = M.ease((i - (b0 + 1) - 0.35 * k - 2) / 7.0, 'cubic_out')
-    if p > 0.01:
-        Bd.over(LB['jet'], alpha=p * (0.6 + 0.4 * snd), dy=6 * (1 - p))
+    # 「旅客機」の文字のラベルの代わりに、900 の目盛りの先に小さな旅客機の形（_dial、jet_glyph）。2026-11-08 美術監督のレビュー
     return Bd
 
 
@@ -334,17 +335,20 @@ def render(beat, ctx):
         lift = (0.55 * e8 * out) * _LIFT
         f += (np.asarray(core.c(LIFT), np.float32) - f) * lift[..., None]
         # うすい線（03 の 0.40 / 0.92 から 8 フレームで 0.25 へ）
-        f = bg_lines(f, t, extra if i >= LIVE else 1.0, 0.92 + (0.25 - 0.92) * e8, 0.40 + (0.20 - 0.40) * e8)
+        # 2026-11-08：メーターの後ろの線は前の半分（0.125・0.10）に（位置がそろって見えないので主張させない）
+        f = bg_lines(f, t, extra if i >= LIVE else 1.0, 0.92 + (0.125 - 0.92) * e8, 0.40 + (0.10 - 0.40) * e8)
         f = ML.label_scrims(f, 1.0, cg=True, scale_bar=i < 6, credit_a=1.0)
         # メーター
         val = needle(i, T)
         ghosts = []
-        d1 = abs(val - needle(i - 1, T)) * 180.0 / VMAX
-        if d1 > 4.0:
-            ghosts = [(needle(i - k / 3.0, T), a) for k, a in ((3, 0.1), (2, 0.2), (1, 0.35))]
+        # 速く回るあいだのぶれ：残像の線ではなく、1 枚のくさび（シャッター 180°＝半フレーム分、針の所 0.6 → 後ろ 0）
+        smear = None
+        vh = needle(i - 0.5, T)
+        if abs(val - vh) * 180.0 / VMAX > 1.5:
+            smear = (vh, val)
         snd = M.ease((i - f_o + 1) / 6.0, 'sine_inout')
         excess = M.ease((i - f_o + 1) / 8.0, 'expo_out')
-        grp = meter_group(val, i, T, ghosts, snd, excess)
+        grp = meter_group(val, i, T, ghosts, snd, excess, smear=smear)
         if i >= n - 6:
             q = M.ease((i - (n - 6) + 1) / 6.0, 'expo_in')      # 縮み・ぼけは expo_in（最後に加速して抜ける）
             grp = grp.affine(push * (1.0 - 0.06 * q), MC).blur(3 * q)
@@ -357,9 +361,11 @@ def render(beat, ctx):
             ka = 1 - e8
             if ka > 0.003:
                 f = b03.overlay_static(f, t, ka, track_u=0.0, head=False, dot_a=0.0, label_a=1.0)
+                f = b03.landing(f, t, alpha=ka)                       # 03 の着いた点と「MAZE」も同じ 8 フレームで消える
         # 03 の文字・縮尺は最初の 6 フレームで上へ抜けて消える
         if i < 6:
             q = M.ease((i + 1) / 6.0, 'cubic_in')
+            f = b03.scale_pill(f, B.cam(t)[1], 1 - q)
             f = B.scale_bar(f, B.cam(t)[1], alpha=0.9 * (1 - q))
             f = U.scrim(f, b03.Y_SUB - 60, b03.Y_BIG + 10, strength=0.42 * (1 - q), feather=150)
             f = sub3.exit(f, i, 0, dur=6)
