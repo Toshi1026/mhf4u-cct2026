@@ -25,3 +25,6 @@ tools/models/
 edl/v2/thumbs/
 edl/v2/sheet_*.jpg
 edl/lp/img/
+
+# しっぽり明朝 B1（大きいので tools/v3/signage/get_fonts.sh で取得）
+assets/fonts/ShipporiMinchoB1-*.ttf

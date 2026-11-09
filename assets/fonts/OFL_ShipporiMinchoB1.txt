@@ -1,0 +1,4 @@
+Shippori Mincho B1 (ShipporiMinchoB1-Medium.ttf / ShipporiMinchoB1-SemiBold.ttf)
+Copyright 2020 The Shippori Mincho Project Authors (https://github.com/fontdasu/ShipporiMincho)
+Licensed under the SIL Open Font License, Version 1.1 (same text as OFL.txt in this folder).
+Obtained from Google Fonts via tools/v3/signage/get_fonts.sh.
