@@ -114,12 +114,12 @@ PLAN = {
                       dict(parts=[dict(text='たかさ、'), dict(text='ひゃく、さんじゅうにキロ！', style=S_SU)], gaps=[0.08]),
                       dict(text='たかさ、ひゃく、さんじゅうに、キロ！')],
                styles=[S_SU, S_SH, S_M, S_H], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.12]),
-    # 2026-11-09 クライアント：「宇宙です」→「宇宙まで来ちゃいました」（ちょっと楽しげに・やっちゃった感）
-    '08': dict(aim='ひと呼吸おいて、楽しげに（……宇宙まで、来ちゃいました）',
-               texts=[dict(text='……うちゅうまで、きちゃいました！'), dict(text='……うちゅうまで、きちゃいました。'),
-                      dict(text='うちゅうまで、きちゃいました！'),
-                      dict(parts=[dict(text='うちゅうまで、', style=S_SU), dict(text='きちゃいました！')], gaps=[0.06])],
-               styles=[S_SU, S_M, S_SH, S_N], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.08]),
+    # 2026-11-09 クライアント：「宇宙です」→「宇宙まで来ちゃいました」。同日 2 回目：「！」ではなく「。」で、
+    # 「来ちゃいました」だけ上がるのはおかしいので、文の頭から終わりまで同じ調子（1 つのスタイル・語尾は下がる）で
+    '08': dict(aim='ひと呼吸おいて、言い切る（……宇宙まで、来ちゃいました。）',
+               texts=[dict(text='……うちゅうまで、きちゃいました。'), dict(text='うちゅうまで、きちゃいました。'),
+                      dict(text='うちゅうまで きちゃいました。')],
+               styles=[S_SU, S_M, S_N, S_F], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.08]),
     '09': dict(aim='サスペンス（そして、5分半後）',
                texts=[dict(text='そして、ごふんはんご。'), dict(text='そして……ごふんはんご。'),
                       dict(text='そして、ごふんはんご…。')],
@@ -153,7 +153,7 @@ BASE = dict(vo_c.BASE)
 # 2026-11-08 選定：α は 1.0 / 1.25 / 1.4 を Whisper の読みと抑揚の数値で比べて決めた（読みが崩れた α は使わない）
 SHAPE = {
     '01': dict(alpha=1.35), '03': dict(alpha=1.4, end_st=-1.5), '04': dict(alpha=1.4), '05': dict(alpha=1.35),
-    '06': dict(alpha=1.4), '07': dict(alpha=1.4), '08': dict(alpha=1.4), '09': dict(alpha=1.4, end_st=-1.5),
+    '06': dict(alpha=1.4), '07': dict(alpha=1.4), '08': dict(alpha=1.3, end_st=-1.5), '09': dict(alpha=1.4, end_st=-1.5),
     '11': dict(alpha=1.4), '12': dict(alpha=1.4), '13': dict(alpha=1.4), '14': dict(alpha=1.35),
     '15': dict(alpha=1.4, end_st=1.5),
 }

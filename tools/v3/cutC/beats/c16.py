@@ -1,4 +1,5 @@
-"""案C 16（約2.4秒・声なし）エンドカード：夜に光る看板（写真 41）→ カフェのロゴ（assets/logo_white.png）と施設名。
+"""案C 16（約2.4秒・声なし）エンドカード：夜に光る看板（写真 41）→ 施設名と住所。
+2026-11-09 クライアントの指示でカフェのロゴ（犬のエンブレム、assets/logo_white.png）は出さない。施設名と住所を画面のまんなか寄りへ。
 
  0–：15 の夜（露出を落とした浜）から、夜の看板（南風のエンブレム）。縦の窓（写真の高さいっぱい）からエンブレムへゆっくり寄る。
      看板の明かりは暖色なので、案C のパレット（オレンジ・黄・金を使わない）に合わせて、明かりの色を冷たい白へ寄せる
@@ -8,7 +9,7 @@
  NAME0–：「Seaside MAZE（南風・まぜ）」（64px Bold、Seaside MAZE＝ACC。12・15 と同じ強調）が 1 文字ずつ上がる。
  ADDR0–：「高知県土佐市新居」（40px Medium）が左から右へやわらかいマスクで出る。
  すべて 48 フレームまでに止まり、最後の約 0.8 秒はそのまま置く。
-文字とロゴはセーフゾーンの中（ロゴ y 455〜835、施設名 y≈950、住所 y≈1022）。
+文字はセーフゾーンの中（施設名 y≈860、住所 y≈932。ロゴを出していたころはロゴ y 455〜835）。
 """
 import cv2
 import numpy as np
@@ -26,7 +27,8 @@ LOGO0, LOGO_DUR = 24, 16
 NAME0, ADDR0 = 30, 38
 TINT = np.array([0.80, 0.93, 1.12], np.float32)     # ぼけた背景を深い海の青へ（案C のパレット）
 LOGO_W, LOGO_CY = 400, 645
-NAME_Y, ADDR_Y = 950, 1022
+NAME_Y, ADDR_Y = 860, 932           # ロゴなし（以前はロゴの下で 950, 1022）
+SHOW_LOGO = False
 START_GAIN = 0.92
 
 
@@ -89,7 +91,8 @@ def render(beat, ctx):
         if b > 0:
             f = cv2.GaussianBlur(f, (0, 0), 0.5 + BLUR_MAX * b) * (1 - (1 - DIM) * b)
             f = f * (1 + (TINT - 1) * b)
-        f = _put_logo(f, lg, i)
+        if SHOW_LOGO:
+            f = _put_logo(f, lg, i)
         f = kn.reveal(f, i, NAME0, 'char_rise', stagger=1.0, dur=10, dy_em=16.0 / 64, blur=5.0, track_from=0.06)
         f = ka.reveal(f, i, ADDR0, 'wipe', dur=12, feather=60.0)
         yield np.clip(f, 0, 1).astype(np.float32)
