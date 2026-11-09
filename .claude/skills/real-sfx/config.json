@@ -1,0 +1,17 @@
+{
+  "libraries": [
+    {
+      "name": "soundeffect-lab",
+      "path": "/home/user/mhf4u-cct2026/exports/v3/sfx/lab",
+      "role": "main"
+    }
+  ],
+  "uisfx": {
+    "path": "vendor/node_modules/uisfx",
+    "default_pack": "studio"
+  },
+  "skip_dir_names": [
+    "_mister horse previews"
+  ],
+  "index_path": "library_index.json"
+}

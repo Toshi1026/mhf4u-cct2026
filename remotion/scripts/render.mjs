@@ -6,7 +6,9 @@
 //   node scripts/render.mjs IG30 --props bgm.json # BGMなどの入力（props）を渡す
 //   node scripts/render.mjs Signage30 --out out --frames 0-59   # 試し書き（remotion/out/ へ）
 //
-// 仕様：H.264 High・CRF 17・yuv420p・BT.709（タグ付き・limited）。
+// 仕様：H.264 High・レベル4.1・CRF 17・yuv420p・BT.709（タグ付き・limited）。
+//       レベルは、屋外サイネージの再生機の多くが「High@4.1/4.2まで」としているため 4.1 に固定する
+//       （x264 が参照フレーム数を 4.1 の上限に合わせる。指定しないと preset slow でレベル 5.0 になる）。
 //       サイネージは音声トラックなし（muted）。IGは AAC 48kHz 256kbps。
 //
 // IG の音について：Remotion が直接 mp4 に AAC で書くと、音が映像より 2048 サンプル（約43ms）遅れる
@@ -116,6 +118,10 @@ for (const id of ids) {
 		frameRange,
 		overwrite: true,
 		chromiumOptions: {gl: 'swangle'},
+		// H.264 のレベルを 4.1 に固定。x264 でエンコードしている段（並列エンコードでは 'pre-stitcher'、
+		// そうでなければ 'stitcher'）の、出力ファイル名の直前に入れる。-c:v copy の段には入れない
+		ffmpegOverride: ({args}) =>
+			args.includes('libx264') ? [...args.slice(0, -1), '-level:v', '4.1', args[args.length - 1]] : args,
 		onProgress: ({progress}) => {
 			const p = Math.floor(progress * 10);
 			if (p !== last) {

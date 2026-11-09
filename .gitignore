@@ -19,3 +19,12 @@ edl/mockups/*.mp4
 remotion/node_modules/
 remotion/public/
 remotion/out/
+
+# v2（施設PR版）：奥行きモデル・写真の縮小版・LPの画像（大きいので入れない）
+tools/models/
+edl/v2/thumbs/
+edl/v2/sheet_*.jpg
+edl/lp/img/
+
+# しっぽり明朝 B1（大きいので tools/v3/signage/get_fonts.sh で取得）
+assets/fonts/ShipporiMinchoB1-*.ttf
