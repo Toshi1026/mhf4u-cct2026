@@ -50,7 +50,7 @@ LINES = vo_c.LINES
 OLD_DUR = json.load(open(os.path.join(FLAT, 'durations.json')))
 DUR_LO, DUR_HI = 0.85, 1.15
 # 修正5で文が変わった行は、旧版との比でなく秒数（トリム後）の範囲で見る
-TARGET = {'01': (2.6, 4.4), '03': (1.6, 3.0), '04': (1.6, 2.8)}
+TARGET = {'01': (2.6, 4.4), '03': (1.6, 3.0), '04': (1.6, 2.8), '08': (1.3, 2.5)}
 FIX5 = ('01', '03', '04')
 PREV5 = os.path.join(OUT, '_prev_fix5')
 if '--fix5' in sys.argv:                   # 修正5のテイクは別の置き場（旧テイクの expr.json と名前がぶつからないように）
@@ -114,9 +114,12 @@ PLAN = {
                       dict(parts=[dict(text='たかさ、'), dict(text='ひゃく、さんじゅうにキロ！', style=S_SU)], gaps=[0.08]),
                       dict(text='たかさ、ひゃく、さんじゅうに、キロ！')],
                styles=[S_SU, S_SH, S_M, S_H], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.12]),
-    '08': dict(aim='ひと呼吸おいて、驚き（……宇宙です）',
-               texts=[dict(text='……うちゅうです。'), dict(text='……うちゅうです！'), dict(text='……うちゅう、です。')],
-               styles=[S_SU, S_F, S_M, S_SH], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.06, 1.12]),
+    # 2026-11-09 クライアント：「宇宙です」→「宇宙まで来ちゃいました」（ちょっと楽しげに・やっちゃった感）
+    '08': dict(aim='ひと呼吸おいて、楽しげに（……宇宙まで、来ちゃいました）',
+               texts=[dict(text='……うちゅうまで、きちゃいました！'), dict(text='……うちゅうまで、きちゃいました。'),
+                      dict(text='うちゅうまで、きちゃいました！'),
+                      dict(parts=[dict(text='うちゅうまで、', style=S_SU), dict(text='きちゃいました！')], gaps=[0.06])],
+               styles=[S_SU, S_M, S_SH, S_N], intons=[1.0, 1.5], tempos=[1.0, 1.4], speeds=[1.08]),
     '09': dict(aim='サスペンス（そして、5分半後）',
                texts=[dict(text='そして、ごふんはんご。'), dict(text='そして……ごふんはんご。'),
                       dict(text='そして、ごふんはんご…。')],
@@ -477,7 +480,7 @@ def collect_merge(durs, rd, chosen):
     print('total %.2fs' % meta['total_sec'])
 
 
-LINES_PREV5 = {'01': 'アニメなら、キラーン。', '03': '現実だと、こうなる。', '04': '約1,400トン。'}
+LINES_PREV5 = {'01': 'アニメなら、キラーン。', '03': '現実だと、こうなる。', '04': '約1,400トン。', '08': '……宇宙です。'}
 
 
 def ab():
